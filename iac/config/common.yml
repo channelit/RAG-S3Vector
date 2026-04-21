@@ -1,5 +1,10 @@
 project_name: rag-s3vector
 
+naming:
+  prefix: cits
+  suffix: ""
+  unique_id: cits001
+
 bedrock:
   embedding_model_id: "amazon.nova-embed-v1:0"
   llm_model_id: "anthropic.claude-3-5-sonnet-20241022-v2:0"

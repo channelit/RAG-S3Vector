@@ -1,6 +1,8 @@
 from aws_cdk import Duration, aws_iam as iam, aws_lambda as lambda_, aws_s3 as s3, aws_s3_notifications as s3n
 from constructs import Construct
 
+from config import resource_name
+
 
 def create_lambda_functions(
     scope: Construct,
@@ -30,7 +32,7 @@ def create_lambda_functions(
     ingestion_fn = lambda_.Function(
         scope,
         "IngestionFunction",
-        function_name=f"{project_name}-ingestion",
+        function_name=resource_name(config, f"{project_name}-ingestion"),
         runtime=lambda_.Runtime.PYTHON_3_12,
         handler="handler.lambda_handler",
         code=lambda_.Code.from_asset("../app/ingestion"),
@@ -48,7 +50,7 @@ def create_lambda_functions(
     query_fn = lambda_.Function(
         scope,
         "QueryFunction",
-        function_name=f"{project_name}-query",
+        function_name=resource_name(config, f"{project_name}-query"),
         runtime=lambda_.Runtime.PYTHON_3_12,
         handler="handler.lambda_handler",
         code=lambda_.Code.from_asset("../app/query"),

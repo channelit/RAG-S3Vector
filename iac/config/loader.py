@@ -17,6 +17,15 @@ def load_config(env: str = "dev") -> dict:
     return config
 
 
+def resource_name(config: dict, base: str) -> str:
+    """Build a resource name as {prefix}-{base}-{suffix}, omitting empty parts."""
+    naming = config.get("naming", {})
+    prefix = naming.get("prefix", "")
+    suffix = naming.get("suffix", "")
+    parts = [p for p in [prefix, base, suffix] if p]
+    return "-".join(parts)
+
+
 def _deep_merge(base: dict, override: dict) -> None:
     for key, value in override.items():
         if key in base and isinstance(base[key], dict) and isinstance(value, dict):

@@ -1,6 +1,8 @@
 from aws_cdk import aws_bedrock as bedrock
 from constructs import Construct
 
+from config import resource_name
+
 
 def create_guardrail(scope: Construct, config: dict) -> dict:
     project_name = config["project_name"]
@@ -8,7 +10,7 @@ def create_guardrail(scope: Construct, config: dict) -> dict:
     guardrail = bedrock.CfnGuardrail(
         scope,
         "RagGuardrail",
-        name=f"{project_name}-guardrail",
+        name=resource_name(config, f"{project_name}-guardrail"),
         description="Blocks harmful content and anonymizes PII in RAG responses",
         blocked_input_messaging="Your request contains content that cannot be processed.",
         blocked_outputs_messaging=(

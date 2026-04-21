@@ -1,12 +1,14 @@
 from aws_cdk import aws_iam as iam, custom_resources as cr
 from constructs import Construct
 
+from config import resource_name
+
 
 def create_vector_resources(scope: Construct, config: dict) -> dict:
     project_name = config["project_name"]
-    account = scope.account
-    vector_bucket_name = f"{project_name}-vectors-{account}"
-    vector_index_name = f"{project_name}-index"
+    unique_id = config["naming"]["unique_id"]
+    vector_bucket_name = resource_name(config, f"{project_name}-vectors-{unique_id}")
+    vector_index_name = resource_name(config, f"{project_name}-index")
     vector_dimension = config["bedrock"]["vector_dimension"]
 
     vector_bucket_cr = cr.AwsCustomResource(
