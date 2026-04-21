@@ -1,0 +1,19 @@
+project_name: rag-s3vector
+
+bedrock:
+  embedding_model_id: "amazon.nova-embed-v1:0"
+  llm_model_id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  vector_dimension: 1024
+
+lambda:
+  ingestion:
+    timeout_minutes: 5
+    memory_size: 512
+  query:
+    timeout_minutes: 1
+    memory_size: 256
+
+tags:
+  APP: rag
+  ENV: dev
+  ORG: CITS
