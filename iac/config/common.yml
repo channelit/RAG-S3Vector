@@ -6,8 +6,8 @@ naming:
   unique_id: cits001
 
 bedrock:
-  embedding_model_id: "amazon.nova-embed-v1:0"
-  llm_model_id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  embedding_model_id: "amazon.nova-2-multimodal-embeddings-v1:0"
+  llm_model_id: "meta.llama3-3-70b-instruct-v1:0"
   vector_dimension: 1024
 
 lambda:

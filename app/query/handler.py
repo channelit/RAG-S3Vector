@@ -85,32 +85,30 @@ def lambda_handler(event, context):
 
     prompt = build_prompt(query, hits)
 
+    llm_body = json.dumps({
+        "messages": [{"role": "user", "content": prompt}],
+        "max_gen_len": 1024,
+    })
+
     llm_response = bedrock_client.invoke_model(
         modelId=LLM_MODEL_ID,
         guardrailIdentifier=GUARDRAIL_ID,
         guardrailVersion=GUARDRAIL_VERSION,
-        body=json.dumps(
-            {
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-        ),
+        body=llm_body,
     )
 
     result = json.loads(llm_response["body"].read())
 
     # Check if the guardrail intervened
-    stop_reason = result.get("stop_reason", "")
-    if stop_reason == "guardrail_intervened":
+    if result.get("amazon-bedrock-guardrailAction") == "INTERVENED":
         return {
             "statusCode": 200,
             "body": json.dumps(
-                {"answer": os.environ.get("BLOCKED_OUTPUT_MSG", "Response blocked by content policy."), "sources": []}
+                {"answer": "Response blocked by content policy.", "sources": []}
             ),
         }
 
-    answer = result["content"][0]["text"]
+    answer = result.get("generation") or result["outputs"][0]["text"]
     sources = list(
         {
             hit.get("metadata", {}).get("fields", {}).get("source", {}).get("stringValue", "")
