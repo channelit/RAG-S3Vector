@@ -28,6 +28,7 @@ EMBEDDING_MODEL_ID = os.environ["EMBEDDING_MODEL_ID"]
 CHUNK_SIZE = 1000       # characters per chunk
 CHUNK_OVERLAP = 200     # overlap between consecutive chunks
 BATCH_SIZE = 500        # max vectors per PutVectors call
+EMBEDDING_DIMENSION = 1024
 
 
 def chunk_text(text: str) -> list[str]:
@@ -49,11 +50,19 @@ def chunk_text(text: str) -> list[str]:
 
 
 def embed(text: str) -> list[float]:
+    request_body = {
+        "taskType": "SINGLE_EMBEDDING",
+        "singleEmbeddingParams": {
+            "embeddingPurpose": "GENERIC_INDEX",
+            "embeddingDimension": EMBEDDING_DIMENSION,
+            "text": {"truncationMode": "END", "value": text},
+        },
+    }
     response = bedrock_client.invoke_model(
         modelId=EMBEDDING_MODEL_ID,
-        body=json.dumps({"inputText": text}),
+        body=json.dumps(request_body),
     )
-    return json.loads(response["body"].read())["embedding"]
+    return json.loads(response["body"].read())["embeddings"][0]["embedding"]
 
 
 def lambda_handler(event, context):
@@ -76,13 +85,11 @@ def lambda_handler(event, context):
             vectors.append(
                 {
                     "key": f"{key}#chunk-{i}",
-                    "data": {"float32Values": embedding},
+                    "data": {"float32": embedding},
                     "metadata": {
-                        "fields": {
-                            "text": {"stringValue": chunk},
-                            "source": {"stringValue": key},
-                            "chunk_id": {"stringValue": str(i)},
-                        }
+                        "text": chunk,
+                        "source": key,
+                        "chunk_id": str(i),
                     },
                 }
             )

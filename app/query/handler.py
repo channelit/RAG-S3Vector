@@ -5,10 +5,10 @@ Accepts: {"query": "your question here"}
 Returns: {"answer": "...", "sources": ["s3-key-1", ...]}
 
 Flow:
-  1. Embed the incoming query with Bedrock Titan Embed Text v2
+  1. Embed the incoming query with Bedrock Nova multimodal embeddings
   2. Retrieve top-K nearest vectors from S3 Vectors
   3. Build a prompt using the retrieved context chunks
-  4. Call Bedrock Claude with the guardrail applied
+  4. Call the Bedrock LLM with the guardrail applied
   5. Return the answer and source document keys
 """
 
@@ -28,14 +28,23 @@ GUARDRAIL_ID = os.environ["GUARDRAIL_ID"]
 GUARDRAIL_VERSION = os.environ["GUARDRAIL_VERSION"]
 
 TOP_K = 5
+EMBEDDING_DIMENSION = 1024
 
 
 def embed(text: str) -> list[float]:
+    request_body = {
+        "taskType": "SINGLE_EMBEDDING",
+        "singleEmbeddingParams": {
+            "embeddingPurpose": "GENERIC_INDEX",
+            "embeddingDimension": EMBEDDING_DIMENSION,
+            "text": {"truncationMode": "END", "value": text},
+        },
+    }
     response = bedrock_client.invoke_model(
         modelId=EMBEDDING_MODEL_ID,
-        body=json.dumps({"inputText": text}),
+        body=json.dumps(request_body),
     )
-    return json.loads(response["body"].read())["embedding"]
+    return json.loads(response["body"].read())["embeddings"][0]["embedding"]
 
 
 def retrieve(query_embedding: list[float]) -> list[dict]:
@@ -43,13 +52,19 @@ def retrieve(query_embedding: list[float]) -> list[dict]:
         vectorBucketName=VECTOR_BUCKET_NAME,
         indexName=VECTOR_INDEX_NAME,
         topK=TOP_K,
-        queryVector={"float32Values": query_embedding},
-        returnMetadata="ALL_METADATA",
+        queryVector={"float32": query_embedding},
+        returnMetadata=True,
     )
     return response.get("vectors", [])
 
 
-def build_prompt(query: str, hits: list[dict]) -> str:
+SYSTEM_PROMPT = (
+    "You are a helpful assistant. Answer the question using only the context provided. "
+    "If the answer is not present, say \"I don't have enough information to answer that.\""
+)
+
+
+def build_user_message(query: str, hits: list[dict]) -> str:
     context_blocks = []
     for hit in hits:
         fields = hit.get("metadata", {}).get("fields", {})
@@ -58,11 +73,15 @@ def build_prompt(query: str, hits: list[dict]) -> str:
         context_blocks.append(f"[Source: {source}]\n{text}")
 
     context = "\n\n".join(context_blocks)
+    return f"<context>\n{context}\n</context>\n\nQuestion: {query}"
+
+
+def format_llama_prompt(system: str, user: str) -> str:
     return (
-        "You are a helpful assistant. Answer the question using only the context below. "
-        "If the answer is not present, say \"I don't have enough information to answer that.\"\n\n"
-        f"<context>\n{context}\n</context>\n\n"
-        f"Question: {query}\n\nAnswer:"
+        "<|begin_of_text|>"
+        f"<|start_header_id|>system<|end_header_id|>\n\n{system}<|eot_id|>"
+        f"<|start_header_id|>user<|end_header_id|>\n\n{user}<|eot_id|>"
+        "<|start_header_id|>assistant<|end_header_id|>\n\n"
     )
 
 
@@ -83,11 +102,12 @@ def lambda_handler(event, context):
     query_embedding = embed(query)
     hits = retrieve(query_embedding)
 
-    prompt = build_prompt(query, hits)
-
+    user_message = build_user_message(query, hits)
     llm_body = json.dumps({
-        "messages": [{"role": "user", "content": prompt}],
+        "prompt": format_llama_prompt(SYSTEM_PROMPT, user_message),
         "max_gen_len": 1024,
+        "temperature": 0.3,
+        "top_p": 0.9,
     })
 
     llm_response = bedrock_client.invoke_model(
@@ -99,7 +119,6 @@ def lambda_handler(event, context):
 
     result = json.loads(llm_response["body"].read())
 
-    # Check if the guardrail intervened
     if result.get("amazon-bedrock-guardrailAction") == "INTERVENED":
         return {
             "statusCode": 200,
@@ -108,7 +127,7 @@ def lambda_handler(event, context):
             ),
         }
 
-    answer = result.get("generation") or result["outputs"][0]["text"]
+    answer = result["generation"]
     sources = list(
         {
             hit.get("metadata", {}).get("fields", {}).get("source", {}).get("stringValue", "")
