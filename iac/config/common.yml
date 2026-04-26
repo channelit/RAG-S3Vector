@@ -7,7 +7,7 @@ naming:
 
 bedrock:
   embedding_model_id: "amazon.nova-2-multimodal-embeddings-v1:0"
-  llm_model_id: "meta.llama3-3-70b-instruct-v1:0"
+  llm_model_id: "us.meta.llama3-3-70b-instruct-v1:0"
   vector_dimension: 1024
 
 lambda:
