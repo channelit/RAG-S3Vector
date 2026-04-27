@@ -13,9 +13,13 @@ Flow:
 """
 
 import json
+import logging
 import os
 
 import boto3
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 bedrock_client = boto3.client("bedrock-runtime")
 s3vectors_client = boto3.client("s3vectors")
@@ -48,14 +52,26 @@ def embed(text: str) -> list[float]:
 
 
 def retrieve(query_embedding: list[float]) -> list[dict]:
+    logger.info(
+        "Querying S3 Vectors bucket=%s index=%s topK=%s embedding_dim=%d",
+        VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, TOP_K, len(query_embedding),
+    )
     response = s3vectors_client.query_vectors(
         vectorBucketName=VECTOR_BUCKET_NAME,
         indexName=VECTOR_INDEX_NAME,
         topK=TOP_K,
         queryVector={"float32": query_embedding},
         returnMetadata=True,
+        returnDistance=True,
     )
-    return response.get("vectors", [])
+    hits = response.get("vectors", [])
+    logger.info("Retrieved %d hit(s)", len(hits))
+    for i, hit in enumerate(hits):
+        logger.info(
+            "  hit[%d] key=%s distance=%s metadata_keys=%s",
+            i, hit.get("key"), hit.get("distance"), list(hit.get("metadata", {}).keys()),
+        )
+    return hits
 
 
 SYSTEM_PROMPT = (
@@ -67,12 +83,13 @@ SYSTEM_PROMPT = (
 def build_user_message(query: str, hits: list[dict]) -> str:
     context_blocks = []
     for hit in hits:
-        fields = hit.get("metadata", {}).get("fields", {})
-        source = fields.get("source", {}).get("stringValue", "unknown")
-        text = fields.get("text", {}).get("stringValue", "")
+        metadata = hit.get("metadata", {}) or {}
+        source = metadata.get("source", "unknown")
+        text = metadata.get("text", "")
         context_blocks.append(f"[Source: {source}]\n{text}")
 
     context = "\n\n".join(context_blocks)
+    logger.info("Built context with %d block(s), total %d chars", len(context_blocks), len(context))
     return f"<context>\n{context}\n</context>\n\nQuestion: {query}"
 
 
@@ -99,6 +116,7 @@ def lambda_handler(event, context):
             "body": json.dumps({"error": "query field is required"}),
         }
 
+    logger.info("Received query: %r", query)
     query_embedding = embed(query)
     hits = retrieve(query_embedding)
 
@@ -118,6 +136,11 @@ def lambda_handler(event, context):
     )
 
     result = json.loads(llm_response["body"].read())
+    logger.info(
+        "LLM responded; guardrailAction=%s, generation_chars=%d",
+        result.get("amazon-bedrock-guardrailAction"),
+        len(result.get("generation", "") or ""),
+    )
 
     if result.get("amazon-bedrock-guardrailAction") == "INTERVENED":
         return {

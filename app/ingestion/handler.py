@@ -12,10 +12,14 @@ For richer PDF/DOCX parsing, add a Lambda layer with pdfminer/python-docx.
 """
 
 import json
+import logging
 import os
 import urllib.parse
 
 import boto3
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 s3_client = boto3.client("s3")
 bedrock_client = boto3.client("bedrock-runtime")
@@ -66,18 +70,27 @@ def embed(text: str) -> list[float]:
 
 
 def lambda_handler(event, context):
+    logger.info("Ingestion invoked with %d record(s)", len(event.get("Records", [])))
     processed = 0
     for record in event.get("Records", []):
         bucket = record["s3"]["bucket"]["name"]
         key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
+        logger.info("Processing s3://%s/%s", bucket, key)
 
         obj = s3_client.get_object(Bucket=bucket, Key=key)
-        text = obj["Body"].read().decode("utf-8", errors="ignore")
+        raw = obj["Body"].read()
+        text = raw.decode("utf-8", errors="ignore")
+        logger.info(
+            "Downloaded object: bytes=%d decoded_chars=%d content_type=%s",
+            len(raw), len(text), obj.get("ContentType"),
+        )
 
         chunks = chunk_text(text)
+        logger.info("Chunked into %d piece(s)", len(chunks))
         if not chunks:
-            print(f"No text extracted from s3://{bucket}/{key}, skipping.")
+            logger.warning("No text extracted from s3://%s/%s, skipping.", bucket, key)
             continue
+        logger.info("First chunk preview: %r", chunks[0][:200])
 
         vectors = []
         for i, chunk in enumerate(chunks):
@@ -96,13 +109,18 @@ def lambda_handler(event, context):
 
         # Upload in batches (S3 Vectors max 500 per call)
         for i in range(0, len(vectors), BATCH_SIZE):
+            batch = vectors[i : i + BATCH_SIZE]
             s3vectors_client.put_vectors(
                 vectorBucketName=VECTOR_BUCKET_NAME,
                 indexName=VECTOR_INDEX_NAME,
-                vectors=vectors[i : i + BATCH_SIZE],
+                vectors=batch,
+            )
+            logger.info(
+                "PutVectors ok: bucket=%s index=%s batch_size=%d (offset=%d)",
+                VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, len(batch), i,
             )
 
-        print(f"Ingested {len(chunks)} chunks from s3://{bucket}/{key}")
+        logger.info("Ingested %d chunks from s3://%s/%s", len(chunks), bucket, key)
         processed += 1
 
     return {"statusCode": 200, "processed_documents": processed}
