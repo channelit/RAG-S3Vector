@@ -63,11 +63,11 @@ def create_ui_resources(
         },
     )
 
-    # 4) Sync ../app/ui/ → bucket and invalidate CloudFront on every deploy
+    # 4) Sync ../app/s3-static/ → bucket and invalidate CloudFront on every deploy
     s3deploy.BucketDeployment(
         scope,
         "UiDeployment",
-        sources=[s3deploy.Source.asset("../app/ui")],
+        sources=[s3deploy.Source.asset("../app/s3-static")],
         destination_bucket=site_bucket,
         distribution=distribution,
         distribution_paths=["/*"],
