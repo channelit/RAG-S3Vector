@@ -1,0 +1,10 @@
+/* Overrides on top of USWDS */
+
+.usa-textarea {
+  min-height: 120px;
+}
+
+/* Preserve whitespace in LLM answers */
+.answer-text {
+  white-space: pre-wrap;
+}

@@ -17,8 +17,11 @@ def create_lambda_functions(
     project_name = config["project_name"]
     embedding_model_id = config["bedrock"]["embedding_model_id"]
     llm_model_id = config["bedrock"]["llm_model_id"]
-    ingestion_cfg = config["lambda"]["ingestion"]
-    query_cfg = config["lambda"]["query"]
+    lambda_cfg = config["lambda"]
+    ingestion_cfg = lambda_cfg["ingestion"]
+    query_cfg = lambda_cfg["query"]
+    runtime = getattr(lambda_.Runtime, lambda_cfg["runtime"])
+    handler = lambda_cfg["handler"]
 
     shared_env = {
         "VECTOR_BUCKET_NAME": vector_bucket_name,
@@ -33,9 +36,9 @@ def create_lambda_functions(
         scope,
         "IngestionFunction",
         function_name=resource_name(config, f"{project_name}-ingestion"),
-        runtime=lambda_.Runtime.PYTHON_3_12,
-        handler="handler.lambda_handler",
-        code=lambda_.Code.from_asset("../app/ingestion"),
+        runtime=runtime,
+        handler=handler,
+        code=lambda_.Code.from_asset(ingestion_cfg["code_path"]),
         role=lambda_role,
         timeout=Duration.minutes(ingestion_cfg["timeout_minutes"]),
         memory_size=ingestion_cfg["memory_size"],
@@ -51,9 +54,9 @@ def create_lambda_functions(
         scope,
         "QueryFunction",
         function_name=resource_name(config, f"{project_name}-query"),
-        runtime=lambda_.Runtime.PYTHON_3_12,
-        handler="handler.lambda_handler",
-        code=lambda_.Code.from_asset("../app/query"),
+        runtime=runtime,
+        handler=handler,
+        code=lambda_.Code.from_asset(query_cfg["code_path"]),
         role=lambda_role,
         timeout=Duration.minutes(query_cfg["timeout_minutes"]),
         memory_size=query_cfg["memory_size"],
