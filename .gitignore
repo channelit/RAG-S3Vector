@@ -7,7 +7,6 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
-dist/
 build/
 .eggs/
 
@@ -15,6 +14,10 @@ build/
 .venv/
 venv/
 env/
+
+# Node / frontend
+node_modules/
+dist/
 
 # CDK
 iac/cdk.out/

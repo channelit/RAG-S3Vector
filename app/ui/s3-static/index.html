@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CSMS Intelligent Retrieval and Compliance Assistant</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      max-width: 720px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.5;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 1rem; }
+    textarea {
+      width: 100%;
+      min-height: 90px;
+      padding: 0.6rem;
+      font: inherit;
+      box-sizing: border-box;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      resize: vertical;
+    }
+    button {
+      margin-top: 0.5rem;
+      padding: 0.55rem 1.1rem;
+      font: inherit;
+      cursor: pointer;
+      border: 0;
+      border-radius: 6px;
+      background: #2563eb;
+      color: white;
+    }
+    button:disabled { opacity: 0.6; cursor: progress; }
+    .panel {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #f4f4f5;
+      border-radius: 6px;
+      white-space: pre-wrap;
+    }
+    .panel.error { background: #fee2e2; color: #991b1b; }
+    .sources { margin-top: 1rem; font-size: 0.9rem; color: #555; }
+    .sources li { margin: 0.2rem 0; }
+    @media (prefers-color-scheme: dark) {
+      .panel { background: #27272a; }
+      .panel.error { background: #4c0519; color: #fecaca; }
+      textarea { background: #18181b; color: inherit; border-color: #3f3f46; }
+    }
+  </style>
+</head>
+<body>
+  <h1>CSMS Query</h1>
+  <textarea id="q" placeholder="Ask a question to the CSMS..."></textarea>
+  <button id="ask">Ask</button>
+
+  <div id="answer" class="panel" hidden></div>
+  <div id="sources" class="sources" hidden>
+    <strong>Sources:</strong>
+    <ul id="sourceList"></ul>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    async function ask() {
+      const query = $("q").value.trim();
+      if (!query) return;
+
+      const askBtn = $("ask");
+      const answerEl = $("answer");
+      const sourcesEl = $("sources");
+
+      askBtn.disabled = true;
+      answerEl.hidden = false;
+      answerEl.classList.remove("error");
+      answerEl.textContent = "Thinking…";
+      sourcesEl.hidden = true;
+
+      try {
+        const res = await fetch("/api/query", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+        const raw = await res.text();
+        let data;
+        try { data = JSON.parse(raw); } catch { data = { answer: raw }; }
+        // Lambda returns { statusCode, body } — Function URL passes body as the HTTP body,
+        // but the body itself is a JSON string from json.dumps. Unwrap if needed.
+        const payload =
+          data && typeof data.body === "string"
+            ? JSON.parse(data.body)
+            : data;
+
+        answerEl.textContent = payload.answer || JSON.stringify(payload, null, 2);
+
+        const sources = Array.isArray(payload.sources) ? payload.sources : [];
+        if (sources.length) {
+          $("sourceList").innerHTML = "";
+          for (const s of sources) {
+            const li = document.createElement("li");
+            li.textContent = s;
+            $("sourceList").appendChild(li);
+          }
+          sourcesEl.hidden = false;
+        }
+      } catch (e) {
+        answerEl.classList.add("error");
+        answerEl.textContent = "Error: " + e.message;
+      } finally {
+        askBtn.disabled = false;
+      }
+    }
+
+    $("ask").addEventListener("click", ask);
+    $("q").addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
+    });
+  </script>
+</body>
+</html>

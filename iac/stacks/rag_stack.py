@@ -8,6 +8,8 @@ from resources.resource_iam import create_lambda_role
 from resources.resource_lambda import create_lambda_functions
 from resources.resource_s3 import create_document_bucket
 from resources.resource_s3_vectors import create_vector_resources
+from resources.resource_fargate import create_fargate_resources
+from resources.resource_ui import create_ui_resources
 
 
 class RagStack(Stack):
@@ -43,6 +45,19 @@ class RagStack(Stack):
             vector_index_name=vector_index_name,
         )
 
+        ui_resources = create_ui_resources(
+            self,
+            config,
+            query_fn=lambda_functions["query_fn"],
+        )
+
+        fargate_resources = create_fargate_resources(
+            self,
+            config,
+            query_fn_name=lambda_functions["query_fn"].function_name,
+            query_fn_arn=lambda_functions["query_fn"].function_arn,
+        )
+
         cdk.CfnOutput(self, "DocumentBucketName", value=document_bucket.bucket_name)
         cdk.CfnOutput(self, "VectorBucketName", value=vector_bucket_name)
         cdk.CfnOutput(self, "VectorIndexName", value=vector_index_name)
@@ -50,3 +65,14 @@ class RagStack(Stack):
         cdk.CfnOutput(self, "GuardrailVersion", value=guardrail_version.attr_version)
         cdk.CfnOutput(self, "IngestionFunctionName", value=lambda_functions["ingestion_fn"].function_name)
         cdk.CfnOutput(self, "QueryFunctionName", value=lambda_functions["query_fn"].function_name)
+        cdk.CfnOutput(
+            self,
+            "UiUrl",
+            value=f"https://{ui_resources['distribution'].distribution_domain_name}",
+        )
+        cdk.CfnOutput(self, "UiBucketName", value=ui_resources["site_bucket"].bucket_name)
+        cdk.CfnOutput(
+            self,
+            "FargateUrl",
+            value=f"http://{fargate_resources['alb'].load_balancer_dns_name}",
+        )
