@@ -1,0 +1,18 @@
+services:
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.local
+    # Mount host AWS credentials so boto3 can reach real AWS
+    # (Lambda, Bedrock, and Guardrails all remain in AWS — nothing runs locally)
+    volumes:
+      - ${HOME}/.aws:/root/.aws:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3

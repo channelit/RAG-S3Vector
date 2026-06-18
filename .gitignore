@@ -18,6 +18,10 @@ env/
 # Node / frontend
 node_modules/
 dist/
+app/ui/container/frontend/node_modules/
+app/ui/container/frontend/dist/
+app/ui/container/frontend/.cache/
+app/ui/container/frontend/.vite/
 
 # CDK
 iac/cdk.out/
