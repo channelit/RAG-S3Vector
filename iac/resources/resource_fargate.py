@@ -75,6 +75,7 @@ def create_fargate_resources(
         desired_count=desired_count,
         assign_public_ip=True,
         public_load_balancer=True,
+        min_healthy_percent=0,
         task_image_options=ecs_patterns.ApplicationLoadBalancedTaskImageOptions(
             image=ecs.ContainerImage.from_docker_image_asset(image_asset),
             container_port=container_port,

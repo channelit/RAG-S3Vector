@@ -15,5 +15,5 @@ def create_document_bucket(scope: Construct, config: dict) -> s3.Bucket:
         encryption=s3.BucketEncryption.S3_MANAGED,
         block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
         versioned=True,
-        removal_policy=RemovalPolicy.RETAIN,
+        removal_policy=RemovalPolicy.DESTROY,
     )

@@ -14,6 +14,7 @@ def create_vector_resources(scope: Construct, config: dict) -> dict:
     vector_bucket_cr = cr.AwsCustomResource(
         scope,
         "VectorBucket",
+        install_latest_aws_sdk=True,  # S3Vectors is not in Lambda's built-in SDK
         on_create=cr.AwsSdkCall(
             service="S3Vectors",
             action="CreateVectorBucket",
@@ -36,6 +37,7 @@ def create_vector_resources(scope: Construct, config: dict) -> dict:
     vector_index_cr = cr.AwsCustomResource(
         scope,
         "VectorIndex",
+        install_latest_aws_sdk=True,  # S3Vectors is not in Lambda's built-in SDK
         on_create=cr.AwsSdkCall(
             service="S3Vectors",
             action="CreateIndex",
