@@ -2,9 +2,24 @@
 
 Custom RAG system using AWS Bedrock (embeddings + LLM) and S3 Vectors as the vector store. Documents are uploaded to S3, ingested via Lambda, and queried through a FastAPI/React UI with Bedrock Guardrails applied.
 
+## Architecture
+
+```
+S3 Document Bucket
+      │  (ObjectCreated event)
+      ▼
+Ingestion Lambda ──► Bedrock Nova Embed ──► S3 Vectors (index)
+
+[local docker-compose UI] ──► Query Lambda ──► Bedrock Nova Embed ──► S3 Vectors query
+                                            └──► Bedrock Claude + Guardrail ──► answer + sources
+```
+
+CDK deploys: S3 buckets, S3 Vectors bucket + index, Lambda functions, Bedrock Guardrail, CloudFront + static UI.
+**The container UI is not deployed to AWS (Fargate is disabled) — run it locally with docker-compose.**
+
 ---
 
-## Local UI testing
+## Local UI
 
 Run the web container locally while Lambda, Bedrock, and Guardrails remain in real AWS. No code changes required.
 

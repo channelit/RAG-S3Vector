@@ -8,7 +8,7 @@ from resources.resource_iam import create_lambda_role
 from resources.resource_lambda import create_lambda_functions
 from resources.resource_s3 import create_document_bucket
 from resources.resource_s3_vectors import create_vector_resources
-from resources.resource_fargate import create_fargate_resources
+# from resources.resource_fargate import create_fargate_resources  # UI runs locally via docker-compose
 from resources.resource_ui import create_ui_resources
 
 
@@ -51,12 +51,13 @@ class RagStack(Stack):
             query_fn=lambda_functions["query_fn"],
         )
 
-        fargate_resources = create_fargate_resources(
-            self,
-            config,
-            query_fn_name=lambda_functions["query_fn"].function_name,
-            query_fn_arn=lambda_functions["query_fn"].function_arn,
-        )
+        # Fargate disabled — UI container runs locally via docker-compose
+        # fargate_resources = create_fargate_resources(
+        #     self,
+        #     config,
+        #     query_fn_name=lambda_functions["query_fn"].function_name,
+        #     query_fn_arn=lambda_functions["query_fn"].function_arn,
+        # )
 
         cdk.CfnOutput(self, "DocumentBucketName", value=document_bucket.bucket_name)
         cdk.CfnOutput(self, "VectorBucketName", value=vector_bucket_name)
@@ -71,8 +72,4 @@ class RagStack(Stack):
             value=f"https://{ui_resources['distribution'].distribution_domain_name}",
         )
         cdk.CfnOutput(self, "UiBucketName", value=ui_resources["site_bucket"].bucket_name)
-        cdk.CfnOutput(
-            self,
-            "FargateUrl",
-            value=f"http://{fargate_resources['alb'].load_balancer_dns_name}",
-        )
+        # cdk.CfnOutput(self, "FargateUrl", ...)
