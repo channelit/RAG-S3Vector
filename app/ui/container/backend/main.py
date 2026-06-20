@@ -21,6 +21,8 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 class QueryRequest(BaseModel):
     query: str
+    date_from: str | None = None
+    date_to: str | None = None
 
 
 @app.get("/health")
@@ -33,10 +35,16 @@ def query(req: QueryRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="query is required")
 
+    payload = {"query": req.query}
+    if req.date_from:
+        payload["date_from"] = req.date_from
+    if req.date_to:
+        payload["date_to"] = req.date_to
+
     response = lambda_client.invoke(
         FunctionName=QUERY_LAMBDA_NAME,
         InvocationType="RequestResponse",
-        Payload=json.dumps({"query": req.query}),
+        Payload=json.dumps(payload),
     )
     payload = json.loads(response["Payload"].read())
     if "FunctionError" in response:

@@ -35,6 +35,14 @@
       color: white;
     }
     button:disabled { opacity: 0.6; cursor: progress; }
+    .date-range {
+      display: flex;
+      gap: 1rem;
+      margin-top: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .date-range label { display: block; font-size: 0.85rem; margin-bottom: 0.2rem; color: #555; }
+    .date-range input { padding: 0.4rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
     .panel {
       margin-top: 1.5rem;
       padding: 1rem;
@@ -55,6 +63,18 @@
 <body>
   <h1>CSMS Query</h1>
   <textarea id="q" placeholder="Ask a question to the CSMS..."></textarea>
+
+  <div class="date-range">
+    <div>
+      <label for="date-from">Document date from (optional)</label>
+      <input type="date" id="date-from" />
+    </div>
+    <div>
+      <label for="date-to">Document date to (optional)</label>
+      <input type="date" id="date-to" />
+    </div>
+  </div>
+
   <button id="ask">Ask</button>
 
   <div id="answer" class="panel" hidden></div>
@@ -80,11 +100,17 @@
       answerEl.textContent = "Thinking…";
       sourcesEl.hidden = true;
 
+      const body = { query };
+      const dateFrom = $("date-from").value;
+      const dateTo = $("date-to").value;
+      if (dateFrom) body.date_from = dateFrom;
+      if (dateTo) body.date_to = dateTo;
+
       try {
         const res = await fetch("/api/query", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ query }),
+          body: JSON.stringify(body),
         });
         const raw = await res.text();
         let data;

@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 function App() {
   const [query, setQuery] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [answer, setAnswer] = useState('')
   const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(false)
@@ -14,11 +16,15 @@ function App() {
     setAnswer('')
     setSources([])
 
+    const body = { query }
+    if (dateFrom) body.date_from = dateFrom
+    if (dateTo) body.date_to = dateTo
+
     try {
       const res = await fetch('/api/query', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) {
         const text = await res.text()
@@ -80,8 +86,39 @@ function App() {
                 />
               </div>
 
+              <fieldset className="usa-fieldset margin-top-3">
+                <legend className="usa-legend">Filter by document date range <span className="usa-hint">(optional)</span></legend>
+                <div className="grid-row grid-gap">
+                  <div className="tablet:grid-col-6">
+                    <div className="usa-form-group">
+                      <label className="usa-label" htmlFor="date-from">From</label>
+                      <input
+                        className="usa-input"
+                        id="date-from"
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="tablet:grid-col-6">
+                    <div className="usa-form-group">
+                      <label className="usa-label" htmlFor="date-to">To</label>
+                      <input
+                        className="usa-input"
+                        id="date-to"
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        min={dateFrom || undefined}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </fieldset>
+
               <button
-                className="usa-button margin-top-1"
+                className="usa-button margin-top-2"
                 onClick={ask}
                 disabled={loading}
                 type="button"

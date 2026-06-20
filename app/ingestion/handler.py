@@ -80,6 +80,9 @@ def lambda_handler(event, context):
         obj = s3_client.get_object(Bucket=bucket, Key=key)
         raw = obj["Body"].read()
         text = raw.decode("utf-8", errors="ignore")
+        last_modified = obj["LastModified"]
+        document_date = last_modified.strftime("%Y-%m-%dT%H:%M:%SZ")
+        document_timestamp = int(last_modified.timestamp())
         logger.info(
             "Downloaded object: bytes=%d decoded_chars=%d content_type=%s",
             len(raw), len(text), obj.get("ContentType"),
@@ -103,6 +106,8 @@ def lambda_handler(event, context):
                         "text": chunk,
                         "source": key,
                         "chunk_id": str(i),
+                        "document_date": document_date,
+                        "document_timestamp": document_timestamp,
                     },
                 }
             )

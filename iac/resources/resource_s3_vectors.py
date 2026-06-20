@@ -48,7 +48,7 @@ def create_vector_resources(scope: Construct, config: dict) -> dict:
                 "dimension": vector_dimension,
                 "distanceMetric": "cosine",
                 "metadataConfiguration": {
-                    "nonFilterableMetadataKeys": ["text", "source", "chunk_id"]
+                    "nonFilterableMetadataKeys": ["text", "chunk_id"]
                 },
             },
             physical_resource_id=cr.PhysicalResourceId.of(

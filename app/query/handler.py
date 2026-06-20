@@ -15,6 +15,7 @@ Flow:
 import json
 import logging
 import os
+from datetime import datetime, timezone, timedelta
 
 import boto3
 
@@ -51,12 +52,32 @@ def embed(text: str) -> list[float]:
     return json.loads(response["body"].read())["embeddings"][0]["embedding"]
 
 
-def retrieve(query_embedding: list[float]) -> list[dict]:
+def _build_date_filter(date_from: str | None, date_to: str | None) -> dict | None:
+    """Build an S3 Vectors numeric filter on document_timestamp (Unix seconds).
+
+    $gte/$lte only work on Number metadata — that's why we store document_timestamp
+    as an int alongside the human-readable document_date string.
+    """
+    conditions = []
+    if date_from:
+        ts = int(datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+        conditions.append({"document_timestamp": {"$gte": ts}})
+    if date_to:
+        # include all of date_to day up to 23:59:59 UTC
+        ts = int((datetime.strptime(date_to, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                  + timedelta(days=1) - timedelta(seconds=1)).timestamp())
+        conditions.append({"document_timestamp": {"$lte": ts}})
+    if not conditions:
+        return None
+    return conditions[0] if len(conditions) == 1 else {"$and": conditions}
+
+
+def retrieve(query_embedding: list[float], date_filter: dict | None = None) -> list[dict]:
     logger.info(
-        "Querying S3 Vectors bucket=%s index=%s topK=%s embedding_dim=%d",
-        VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, TOP_K, len(query_embedding),
+        "Querying S3 Vectors bucket=%s index=%s topK=%s embedding_dim=%d filter=%s",
+        VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, TOP_K, len(query_embedding), date_filter,
     )
-    response = s3vectors_client.query_vectors(
+    kwargs = dict(
         vectorBucketName=VECTOR_BUCKET_NAME,
         indexName=VECTOR_INDEX_NAME,
         topK=TOP_K,
@@ -64,6 +85,10 @@ def retrieve(query_embedding: list[float]) -> list[dict]:
         returnMetadata=True,
         returnDistance=True,
     )
+    if date_filter:
+        kwargs["filter"] = date_filter
+
+    response = s3vectors_client.query_vectors(**kwargs)
     hits = response.get("vectors", [])
     logger.info("Retrieved %d hit(s)", len(hits))
     for i, hit in enumerate(hits):
@@ -102,6 +127,18 @@ def format_llama_prompt(system: str, user: str) -> str:
     )
 
 
+def _in_date_range(hit: dict, date_from: str | None, date_to: str | None) -> bool:
+    doc_date = (hit.get("metadata") or {}).get("document_date", "")
+    if not doc_date:
+        return True  # no date stored → don't exclude
+    day = doc_date[:10]  # "YYYY-MM-DD" prefix is lexicographically comparable
+    if date_from and day < date_from:
+        return False
+    if date_to and day > date_to:
+        return False
+    return True
+
+
 def lambda_handler(event, context):
     # Support both direct invocation and API Gateway proxy events
     if "body" in event:
@@ -116,9 +153,21 @@ def lambda_handler(event, context):
             "body": json.dumps({"error": "query field is required"}),
         }
 
-    logger.info("Received query: %r", query)
+    date_from = body.get("date_from") or None
+    date_to = body.get("date_to") or None
+
+    logger.info("Received query: %r date_from=%s date_to=%s", query, date_from, date_to)
     query_embedding = embed(query)
-    hits = retrieve(query_embedding)
+
+    # Pre-filter: numeric range on document_timestamp applied inside S3 Vectors ANN search
+    date_filter = _build_date_filter(date_from, date_to)
+    hits = retrieve(query_embedding, date_filter=date_filter)
+
+    # Post-filter: string-date fallback for vectors ingested before document_timestamp was added
+    if date_from or date_to:
+        before = len(hits)
+        hits = [h for h in hits if _in_date_range(h, date_from, date_to)]
+        logger.info("Post-filter (%s → %s): %d → %d hit(s)", date_from, date_to, before, len(hits))
 
     user_message = build_user_message(query, hits)
     llm_body = json.dumps({
