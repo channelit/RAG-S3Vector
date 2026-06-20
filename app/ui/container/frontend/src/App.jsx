@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import flagImg from '@uswds/uswds/dist/img/us_flag_small.png'
-import dotGovImg from '@uswds/uswds/dist/img/icon-dot-gov.svg'
-import httpsImg from '@uswds/uswds/dist/img/icon-https.svg'
+import flagImg from '@uswds/uswds/img/us_flag_small.png'
+import dotGovImg from '@uswds/uswds/img/icon-dot-gov.svg'
+import httpsImg from '@uswds/uswds/img/icon-https.svg'
 
 const CBP_SEAL = 'https://upload.wikimedia.org/wikipedia/commons/0/08/Seal_of_U.S._Customs_and_Border_Protection.png'
 const DHS_SEAL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Seal_of_the_United_States_Department_of_Homeland_Security.svg/120px-Seal_of_the_United_States_Department_of_Homeland_Security.svg.png'
 
 function GovBanner() {
+  const [expanded, setExpanded] = useState(false)
   return (
     <section className="usa-banner" aria-label="Official website of the United States government">
       <div className="usa-accordion">
@@ -24,14 +25,19 @@ function GovBanner() {
             <button
               type="button"
               className="usa-accordion__button usa-banner__button"
-              aria-expanded="false"
+              aria-expanded={expanded}
               aria-controls="gov-banner-default"
+              onClick={() => setExpanded((v) => !v)}
             >
               <span className="usa-banner__button-text">Here's how you know</span>
             </button>
           </div>
         </header>
-        <div className="usa-banner__content usa-accordion__content" id="gov-banner-default">
+        <div
+          className="usa-banner__content usa-accordion__content"
+          id="gov-banner-default"
+          hidden={!expanded}
+        >
           <div className="grid-row grid-gap-lg">
             <div className="usa-banner__guidance tablet:grid-col-6">
               <img className="usa-banner__icon usa-media-block__img" src={dotGovImg} role="img" alt="" aria-hidden="true" />
