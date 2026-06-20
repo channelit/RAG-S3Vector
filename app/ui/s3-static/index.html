@@ -3,149 +3,319 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CSMS Intelligent Retrieval and Compliance Assistant</title>
+  <title>CSMS Intelligent Retrieval and Compliance Assistant | CBP</title>
+  <link rel="stylesheet" href="https://unpkg.com/@uswds/uswds@3.11.0/dist/css/uswds.min.css" />
   <style>
-    :root { color-scheme: light dark; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      max-width: 720px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-      line-height: 1.5;
-    }
-    h1 { font-size: 1.4rem; margin-bottom: 1rem; }
-    textarea {
-      width: 100%;
-      min-height: 90px;
-      padding: 0.6rem;
-      font: inherit;
-      box-sizing: border-box;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      resize: vertical;
-    }
-    button {
-      margin-top: 0.5rem;
-      padding: 0.55rem 1.1rem;
-      font: inherit;
-      cursor: pointer;
-      border: 0;
-      border-radius: 6px;
-      background: #2563eb;
-      color: white;
-    }
-    button:disabled { opacity: 0.6; cursor: progress; }
-    .date-range {
-      display: flex;
-      gap: 1rem;
-      margin-top: 0.75rem;
-      flex-wrap: wrap;
-    }
-    .date-range label { display: block; font-size: 0.85rem; margin-bottom: 0.2rem; color: #555; }
-    .date-range input { padding: 0.4rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
-    .panel {
-      margin-top: 1.5rem;
-      padding: 1rem;
-      background: #f4f4f5;
-      border-radius: 6px;
-      white-space: pre-wrap;
-    }
-    .panel.error { background: #fee2e2; color: #991b1b; }
-    .sources { margin-top: 1rem; font-size: 0.9rem; color: #555; }
-    .sources li { margin: 0.2rem 0; }
-    @media (prefers-color-scheme: dark) {
-      .panel { background: #27272a; }
-      .panel.error { background: #4c0519; color: #fecaca; }
-      textarea { background: #18181b; color: inherit; border-color: #3f3f46; }
-    }
+    /* CBP header identity */
+    .cbp-logo { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; }
+    .cbp-logo__seal { height: 56px; width: 56px; object-fit: contain; flex-shrink: 0; }
+    .cbp-logo__text { display: flex; flex-direction: column; line-height: 1.3; }
+    .cbp-logo__agency { font-size: 1rem; font-weight: 700; color: #1b1b1b; }
+    .cbp-logo__subagency { font-size: 0.8rem; color: #565c65; }
+    .cbp-logo__app { font-size: 0.8rem; font-style: italic; color: #005ea2; margin-top: 0.1rem; }
+    .usa-footer__logo-img { height: 40px; width: 40px; object-fit: contain; }
+    .usa-identifier__logo-img { height: 48px; width: 48px; object-fit: contain; }
+    .answer-text { white-space: pre-wrap; }
+    .usa-textarea { min-height: 120px; }
   </style>
 </head>
 <body>
-  <h1>CSMS Query</h1>
-  <textarea id="q" placeholder="Ask a question to the CSMS..."></textarea>
 
-  <div class="date-range">
-    <div>
-      <label for="date-from">Document date from (optional)</label>
-      <input type="date" id="date-from" />
+  <a class="usa-skipnav" href="#main-content">Skip to main content</a>
+
+  <!-- Government banner -->
+  <section class="usa-banner" aria-label="Official website of the United States government">
+    <div class="usa-accordion">
+      <header class="usa-banner__header">
+        <div class="usa-banner__inner">
+          <div class="grid-col-auto">
+            <img aria-hidden="true" class="usa-banner__header-flag"
+                 src="https://unpkg.com/@uswds/uswds@3.11.0/dist/img/us_flag_small.png" alt="" />
+          </div>
+          <div class="grid-col-fill tablet:grid-col-auto" aria-hidden="true">
+            <p class="usa-banner__header-text">An official website of the United States government</p>
+            <p class="usa-banner__header-action">Here's how you know</p>
+          </div>
+          <button type="button" class="usa-accordion__button usa-banner__button"
+                  aria-expanded="false" aria-controls="gov-banner-default">
+            <span class="usa-banner__button-text">Here's how you know</span>
+          </button>
+        </div>
+      </header>
+      <div class="usa-banner__content usa-accordion__content" id="gov-banner-default">
+        <div class="grid-row grid-gap-lg">
+          <div class="usa-banner__guidance tablet:grid-col-6">
+            <img class="usa-banner__icon usa-media-block__img"
+                 src="https://unpkg.com/@uswds/uswds@3.11.0/dist/img/icon-dot-gov.svg"
+                 role="img" alt="" aria-hidden="true" />
+            <div class="usa-media-block__body">
+              <p><strong>Official websites use .gov</strong><br />
+              A <strong>.gov</strong> website belongs to an official government organization in the United States.</p>
+            </div>
+          </div>
+          <div class="usa-banner__guidance tablet:grid-col-6">
+            <img class="usa-banner__icon usa-media-block__img"
+                 src="https://unpkg.com/@uswds/uswds@3.11.0/dist/img/icon-https.svg"
+                 role="img" alt="" aria-hidden="true" />
+            <div class="usa-media-block__body">
+              <p><strong>Secure .gov websites use HTTPS</strong><br />
+              A <strong>lock</strong> or <strong>https://</strong> means you've safely connected to the .gov website. Share sensitive information only on official, secure websites.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div>
-      <label for="date-to">Document date to (optional)</label>
-      <input type="date" id="date-to" />
+  </section>
+
+  <!-- Header -->
+  <div class="usa-overlay"></div>
+  <header class="usa-header usa-header--basic" role="banner">
+    <div class="usa-nav-container">
+      <div class="usa-navbar">
+        <div class="usa-logo cbp-logo">
+          <img class="cbp-logo__seal"
+               src="https://upload.wikimedia.org/wikipedia/commons/0/08/Seal_of_U.S._Customs_and_Border_Protection.png"
+               alt="U.S. Customs and Border Protection seal" />
+          <div class="cbp-logo__text">
+            <span class="cbp-logo__agency">U.S. Customs and Border Protection</span>
+            <span class="cbp-logo__subagency">U.S. Department of Homeland Security</span>
+            <em class="cbp-logo__app">CSMS Intelligent Retrieval and Compliance Assistant</em>
+          </div>
+        </div>
+      </div>
     </div>
+  </header>
+
+  <!-- Main content -->
+  <main id="main-content" class="usa-section">
+    <div class="grid-container">
+      <div class="grid-row grid-gap">
+        <div class="tablet:grid-col-10 tablet:grid-offset-1 desktop:grid-col-8 desktop:grid-offset-2">
+
+          <h1 class="font-heading-xl margin-bottom-2">Document Query</h1>
+          <p class="usa-intro">
+            Search ingested CSMS documents using natural language. Results are filtered through Bedrock Guardrails and sourced exclusively from uploaded content.
+          </p>
+
+          <div class="usa-form-group margin-top-4">
+            <label class="usa-label" for="q">Ask a question</label>
+            <span class="usa-hint" id="query-hint">Press Ctrl+Enter or ⌘+Enter to submit</span>
+            <textarea class="usa-textarea" id="q" aria-describedby="query-hint"
+                      placeholder="Ask a question about CSMS documents…"></textarea>
+          </div>
+
+          <fieldset class="usa-fieldset margin-top-3">
+            <legend class="usa-legend">
+              Filter by document date range
+              <span class="usa-hint display-block margin-top-05">
+                Only documents uploaded within this range will be used as sources. Leave blank to search all documents.
+              </span>
+            </legend>
+            <div class="grid-row grid-gap">
+              <div class="tablet:grid-col-6">
+                <div class="usa-form-group">
+                  <label class="usa-label" for="date-from">From date</label>
+                  <input class="usa-input" type="date" id="date-from" />
+                </div>
+              </div>
+              <div class="tablet:grid-col-6">
+                <div class="usa-form-group">
+                  <label class="usa-label" for="date-to">To date</label>
+                  <input class="usa-input" type="date" id="date-to" />
+                </div>
+              </div>
+            </div>
+          </fieldset>
+
+          <button class="usa-button margin-top-3" id="ask" type="button">Submit Query</button>
+
+          <div id="answer" class="usa-summary-box margin-top-4" role="region" aria-label="Query answer" hidden>
+            <div class="usa-summary-box__body">
+              <h3 class="usa-summary-box__heading">Answer</h3>
+              <div class="usa-summary-box__text answer-text" id="answer-text"></div>
+            </div>
+          </div>
+
+          <div id="error-box" class="usa-alert usa-alert--error margin-top-4" role="alert" hidden>
+            <div class="usa-alert__body">
+              <h4 class="usa-alert__heading">Error</h4>
+              <p class="usa-alert__text" id="error-text"></p>
+            </div>
+          </div>
+
+          <div id="sources-box" class="margin-top-3" hidden>
+            <h4 class="font-heading-xs text-base-dark margin-bottom-1">Sources</h4>
+            <ul id="source-list" class="usa-list usa-list--unstyled font-body-xs text-base"></ul>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Slim footer -->
+  <footer class="usa-footer usa-footer--slim">
+    <div class="usa-footer__primary-section">
+      <div class="usa-footer__primary-container grid-row">
+        <div class="mobile-lg:grid-col-8">
+          <nav class="usa-footer__nav" aria-label="Footer navigation">
+            <ul class="grid-row grid-gap">
+              <li class="mobile-lg:grid-col-6 desktop:grid-col-auto usa-footer__primary-content">
+                <a class="usa-footer__primary-link" href="https://www.cbp.gov">CBP.gov</a>
+              </li>
+              <li class="mobile-lg:grid-col-6 desktop:grid-col-auto usa-footer__primary-content">
+                <a class="usa-footer__primary-link" href="https://www.dhs.gov">DHS.gov</a>
+              </li>
+              <li class="mobile-lg:grid-col-6 desktop:grid-col-auto usa-footer__primary-content">
+                <a class="usa-footer__primary-link" href="https://www.cbp.gov/about/legal/foia">FOIA</a>
+              </li>
+              <li class="mobile-lg:grid-col-6 desktop:grid-col-auto usa-footer__primary-content">
+                <a class="usa-footer__primary-link" href="https://www.cbp.gov/about/legal/privacy-policy">Privacy Policy</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+        <div class="mobile-lg:grid-col-4">
+          <address class="usa-footer__address">
+            <div class="grid-row grid-gap">
+              <div class="grid-col-auto mobile-lg:grid-col-12 desktop:grid-col-auto">
+                <div class="usa-footer__contact-info">
+                  <a href="https://www.cbp.gov/contact">Contact CBP</a>
+                </div>
+              </div>
+            </div>
+          </address>
+        </div>
+      </div>
+    </div>
+    <div class="usa-footer__secondary-section">
+      <div class="grid-container">
+        <div class="usa-footer__logo grid-row grid-gap-2">
+          <div class="grid-col-auto">
+            <img class="usa-footer__logo-img"
+                 src="https://upload.wikimedia.org/wikipedia/commons/0/08/Seal_of_U.S._Customs_and_Border_Protection.png"
+                 alt="" />
+          </div>
+          <div class="grid-col-auto">
+            <p class="usa-footer__logo-heading">U.S. Customs and Border Protection</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Identifier -->
+  <div class="usa-identifier">
+    <section class="usa-identifier__section usa-identifier__section--masthead" aria-label="Agency identifier">
+      <div class="usa-identifier__container">
+        <div class="usa-identifier__logos">
+          <a href="https://www.cbp.gov" class="usa-identifier__logo">
+            <img class="usa-identifier__logo-img" role="img" alt="CBP seal"
+                 src="https://upload.wikimedia.org/wikipedia/commons/0/08/Seal_of_U.S._Customs_and_Border_Protection.png" />
+          </a>
+          <a href="https://www.dhs.gov" class="usa-identifier__logo">
+            <img class="usa-identifier__logo-img" role="img" alt="DHS seal"
+                 src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Seal_of_the_United_States_Department_of_Homeland_Security.svg/120px-Seal_of_the_United_States_Department_of_Homeland_Security.svg.png" />
+          </a>
+        </div>
+        <section class="usa-identifier__identity" aria-label="Agency description">
+          <p class="usa-identifier__identity-domain">cbp.gov</p>
+          <p class="usa-identifier__identity-disclaimer">
+            An official website of <a href="https://www.cbp.gov">U.S. Customs and Border Protection</a>,
+            <a href="https://www.dhs.gov">U.S. Department of Homeland Security</a>
+          </p>
+        </section>
+      </div>
+    </section>
+    <nav class="usa-identifier__section usa-identifier__section--required-links" aria-label="Important links">
+      <div class="usa-identifier__container">
+        <ul class="usa-identifier__required-links-list">
+          <li class="usa-identifier__required-links-item">
+            <a href="https://www.cbp.gov/about" class="usa-identifier__required-link usa-link">About CBP</a>
+          </li>
+          <li class="usa-identifier__required-links-item">
+            <a href="https://www.cbp.gov/about/legal/accessibility" class="usa-identifier__required-link usa-link">Accessibility statement</a>
+          </li>
+          <li class="usa-identifier__required-links-item">
+            <a href="https://www.cbp.gov/about/legal/foia" class="usa-identifier__required-link usa-link">FOIA requests</a>
+          </li>
+          <li class="usa-identifier__required-links-item">
+            <a href="https://www.cbp.gov/about/legal/privacy-policy" class="usa-identifier__required-link usa-link">Privacy policy</a>
+          </li>
+          <li class="usa-identifier__required-links-item">
+            <a href="https://www.dhs.gov/vulnerability-disclosure-policy" class="usa-identifier__required-link usa-link">Vulnerability disclosure policy</a>
+          </li>
+        </ul>
+      </div>
+    </nav>
+    <section class="usa-identifier__section usa-identifier__section--usagov"
+             aria-label="U.S. government information and services">
+      <div class="usa-identifier__container">
+        <div class="usa-identifier__usagov-description">Looking for U.S. government information and services?</div>
+        <a href="https://www.usa.gov/" class="usa-link">Visit USA.gov</a>
+      </div>
+    </section>
   </div>
 
-  <button id="ask">Ask</button>
-
-  <div id="answer" class="panel" hidden></div>
-  <div id="sources" class="sources" hidden>
-    <strong>Sources:</strong>
-    <ul id="sourceList"></ul>
-  </div>
-
+  <script src="https://unpkg.com/@uswds/uswds@3.11.0/dist/js/uswds.min.js"></script>
   <script>
-    const $ = (id) => document.getElementById(id);
+    const $ = (id) => document.getElementById(id)
 
     async function ask() {
-      const query = $("q").value.trim();
-      if (!query) return;
+      const query = $('q').value.trim()
+      if (!query) return
 
-      const askBtn = $("ask");
-      const answerEl = $("answer");
-      const sourcesEl = $("sources");
+      const btn = $('ask')
+      btn.disabled = true
+      btn.textContent = 'Searching…'
+      $('answer').hidden = true
+      $('error-box').hidden = true
+      $('sources-box').hidden = true
 
-      askBtn.disabled = true;
-      answerEl.hidden = false;
-      answerEl.classList.remove("error");
-      answerEl.textContent = "Thinking…";
-      sourcesEl.hidden = true;
-
-      const body = { query };
-      const dateFrom = $("date-from").value;
-      const dateTo = $("date-to").value;
-      if (dateFrom) body.date_from = dateFrom;
-      if (dateTo) body.date_to = dateTo;
+      const body = { query }
+      const dateFrom = $('date-from').value
+      const dateTo = $('date-to').value
+      if (dateFrom) body.date_from = dateFrom
+      if (dateTo) body.date_to = dateTo
 
       try {
-        const res = await fetch("/api/query", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
+        const res = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
-        });
-        const raw = await res.text();
-        let data;
-        try { data = JSON.parse(raw); } catch { data = { answer: raw }; }
-        // Lambda returns { statusCode, body } — Function URL passes body as the HTTP body,
-        // but the body itself is a JSON string from json.dumps. Unwrap if needed.
-        const payload =
-          data && typeof data.body === "string"
-            ? JSON.parse(data.body)
-            : data;
+        })
+        const raw = await res.text()
+        let data
+        try { data = JSON.parse(raw) } catch { data = { answer: raw } }
+        const payload = data && typeof data.body === 'string' ? JSON.parse(data.body) : data
 
-        answerEl.textContent = payload.answer || JSON.stringify(payload, null, 2);
+        $('answer-text').textContent = payload.answer || JSON.stringify(payload, null, 2)
+        $('answer').hidden = false
 
-        const sources = Array.isArray(payload.sources) ? payload.sources : [];
+        const sources = Array.isArray(payload.sources) ? payload.sources : []
         if (sources.length) {
-          $("sourceList").innerHTML = "";
-          for (const s of sources) {
-            const li = document.createElement("li");
-            li.textContent = s;
-            $("sourceList").appendChild(li);
-          }
-          sourcesEl.hidden = false;
+          const ul = $('source-list')
+          ul.innerHTML = ''
+          sources.forEach((s) => {
+            const li = document.createElement('li')
+            li.textContent = s
+            ul.appendChild(li)
+          })
+          $('sources-box').hidden = false
         }
       } catch (e) {
-        answerEl.classList.add("error");
-        answerEl.textContent = "Error: " + e.message;
+        $('error-text').textContent = e.message
+        $('error-box').hidden = false
       } finally {
-        askBtn.disabled = false;
+        btn.disabled = false
+        btn.textContent = 'Submit Query'
       }
     }
 
-    $("ask").addEventListener("click", ask);
-    $("q").addEventListener("keydown", (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
-    });
+    $('ask').addEventListener('click', ask)
+    $('q').addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') ask()
+    })
   </script>
 </body>
 </html>
