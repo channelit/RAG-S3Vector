@@ -1,4 +1,4 @@
-from aws_cdk import Duration, aws_iam as iam, aws_lambda as lambda_, aws_s3 as s3, aws_s3_notifications as s3n
+from aws_cdk import BundlingOptions, Duration, aws_iam as iam, aws_lambda as lambda_, aws_s3 as s3, aws_s3_notifications as s3n
 from constructs import Construct
 
 from config import resource_name
@@ -38,7 +38,17 @@ def create_lambda_functions(
         function_name=resource_name(config, f"{project_name}-ingestion"),
         runtime=runtime,
         handler=handler,
-        code=lambda_.Code.from_asset(ingestion_cfg["code_path"]),
+        code=lambda_.Code.from_asset(
+            ingestion_cfg["code_path"],
+            bundling=BundlingOptions(
+                image=runtime.bundling_image,
+                command=[
+                    "bash", "-c",
+                    "pip install -r requirements.txt -t /asset-output --quiet "
+                    "&& cp -au . /asset-output",
+                ],
+            ),
+        ),
         role=lambda_role,
         timeout=Duration.minutes(ingestion_cfg["timeout_minutes"]),
         memory_size=ingestion_cfg["memory_size"],

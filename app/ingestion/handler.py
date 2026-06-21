@@ -18,12 +18,23 @@ import urllib.parse
 
 import boto3
 
+from archive_pdf_handler import ArchivePdfHandler
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 s3_client = boto3.client("s3")
 bedrock_client = boto3.client("bedrock-runtime")
 s3vectors_client = boto3.client("s3vectors")
+
+_archive_handler = ArchivePdfHandler(
+    s3_client=s3_client,
+    bedrock_client=bedrock_client,
+    s3vectors_client=s3vectors_client,
+    vector_bucket_name=os.environ["VECTOR_BUCKET_NAME"],
+    vector_index_name=os.environ["VECTOR_INDEX_NAME"],
+    embedding_model_id=os.environ["EMBEDDING_MODEL_ID"],
+)
 
 VECTOR_BUCKET_NAME = os.environ["VECTOR_BUCKET_NAME"]
 VECTOR_INDEX_NAME = os.environ["VECTOR_INDEX_NAME"]
@@ -88,7 +99,27 @@ def lambda_handler(event, context):
         size = record["s3"]["object"].get("size", "unknown")
         logger.info("--- START s3://%s/%s (size=%s bytes) ---", bucket, key, size)
 
-        # Download
+        # Route archive PDFs to the dedicated handler
+        if ArchivePdfHandler.should_handle(key):
+            logger.info("Routing to ArchivePdfHandler for archive PDF: %s", key)
+            try:
+                obj = s3_client.get_object(Bucket=bucket, Key=key)
+                last_modified = obj["LastModified"]
+                document_date = last_modified.strftime("%Y-%m-%dT%H:%M:%SZ")
+                document_timestamp = int(last_modified.timestamp())
+                vectors_written = _archive_handler.handle(
+                    bucket=bucket,
+                    key=key,
+                    document_date=document_date,
+                    document_timestamp=document_timestamp,
+                )
+                logger.info("ArchivePdfHandler wrote %d vectors for %s", vectors_written, key)
+                processed += 1
+            except Exception as e:
+                logger.error("ArchivePdfHandler FAILED for %s: %s", key, e)
+            continue
+
+        # Standard ingestion path (non-archive or non-PDF)
         try:
             obj = s3_client.get_object(Bucket=bucket, Key=key)
         except Exception as e:

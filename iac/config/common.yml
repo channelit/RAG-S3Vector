@@ -14,7 +14,7 @@ lambda:
   runtime: "PYTHON_3_12"
   handler: "handler.lambda_handler"
   ingestion:
-    timeout_minutes: 5
+    timeout_minutes: 15
     memory_size: 512
     code_path: "../app/ingestion"
   query:
