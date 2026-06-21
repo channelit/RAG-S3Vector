@@ -282,3 +282,85 @@ class ArchivePdfHandler:
             written += len(batch)
             logger.info("[ArchivePdf] PutVectors ok: %d written", len(batch))
         return written
+
+    # ------------------------------------------------------------------
+    # Local test — no AWS required
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def test_local(cls, pdf_path: str) -> None:
+        """Read a local PDF, extract links, fetch each page, dump content to logs.
+
+        Usage:
+            python archive_pdf_handler.py path/to/file.pdf
+            python archive_pdf_handler.py path/to/file.pdf --max-links 10
+        """
+        instance = cls(
+            s3_client=None,
+            bedrock_client=None,
+            s3vectors_client=None,
+            vector_bucket_name="(local-test)",
+            vector_index_name="(local-test)",
+            embedding_model_id="(local-test)",
+        )
+
+        logger.info("=== LOCAL TEST: %s ===", pdf_path)
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+        logger.info("PDF size: %d bytes", len(pdf_bytes))
+
+        links = instance._extract_links(pdf_bytes, pdf_path)
+        logger.info("Found %d link(s)", len(links))
+
+        if not links:
+            logger.warning("No hyperlinks found — nothing to fetch")
+            return
+
+        for idx, url in enumerate(links):
+            print(f"\n{'='*72}")
+            print(f"LINK {idx + 1}/{len(links)}: {url}")
+            print("=" * 72)
+
+            try:
+                text = instance._fetch_text(url)
+            except Exception as exc:
+                print(f"  ERROR fetching: {exc}")
+                logger.error("Fetch failed for %s: %s", url, exc)
+                continue
+
+            chunks = instance._chunk_text(text)
+            print(f"  Extracted {len(text)} chars → {len(chunks)} chunk(s)")
+            print()
+
+            for chunk_idx, chunk in enumerate(chunks):
+                print(f"  --- chunk {chunk_idx} ({len(chunk)} chars) ---")
+                print(f"  {chunk[:500]}{'...' if len(chunk) > 500 else ''}")
+                print()
+
+        print(f"\n=== DONE: {len(links)} link(s) processed from {pdf_path} ===")
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-8s  %(message)s",
+        stream=sys.stdout,
+    )
+
+    parser = argparse.ArgumentParser(
+        description="Local test for ArchivePdfHandler — no AWS required."
+    )
+    parser.add_argument("pdf", help="Path to a local PDF file")
+    parser.add_argument(
+        "--max-links",
+        type=int,
+        default=ArchivePdfHandler.MAX_LINKS,
+        help=f"Max links to follow (default: {ArchivePdfHandler.MAX_LINKS})",
+    )
+    args = parser.parse_args()
+
+    ArchivePdfHandler.MAX_LINKS = args.max_links
+    ArchivePdfHandler.test_local(args.pdf)
