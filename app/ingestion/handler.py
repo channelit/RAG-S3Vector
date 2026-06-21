@@ -4,8 +4,8 @@ Ingestion Lambda
 Triggered by S3 ObjectCreated events. For each uploaded document:
   1. Download the object from S3
   2. Split into overlapping text chunks
-  3. Generate embeddings via Bedrock Titan Embed Text v2
-  4. Store vectors in S3 Vectors
+  3. Generate embeddings via Bedrock Nova Embed
+  4. Store vectors + metadata in S3 Vectors
 
 Supported formats: plain text (.txt) and basic PDF text extraction.
 For richer PDF/DOCX parsing, add a Lambda layer with pdfminer/python-docx.
@@ -36,7 +36,6 @@ EMBEDDING_DIMENSION = 1024
 
 
 def chunk_text(text: str) -> list[str]:
-    """Split text into overlapping chunks, preferring sentence boundaries."""
     chunks = []
     start = 0
     while start < len(text):
@@ -54,6 +53,7 @@ def chunk_text(text: str) -> list[str]:
 
 
 def embed(text: str) -> list[float]:
+    logger.info("Embedding chunk of %d chars with model=%s", len(text), EMBEDDING_MODEL_ID)
     request_body = {
         "taskType": "SINGLE_EMBEDDING",
         "singleEmbeddingParams": {
@@ -66,66 +66,109 @@ def embed(text: str) -> list[float]:
         modelId=EMBEDDING_MODEL_ID,
         body=json.dumps(request_body),
     )
-    return json.loads(response["body"].read())["embeddings"][0]["embedding"]
+    embedding = json.loads(response["body"].read())["embeddings"][0]["embedding"]
+    logger.info("Embedding produced %d dimensions", len(embedding))
+    return embedding
 
 
 def lambda_handler(event, context):
-    logger.info("Ingestion invoked with %d record(s)", len(event.get("Records", [])))
+    logger.info("Ingestion invoked; event=%s", json.dumps(event))
+    logger.info(
+        "Config: VECTOR_BUCKET=%s VECTOR_INDEX=%s EMBEDDING_MODEL=%s",
+        VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, EMBEDDING_MODEL_ID,
+    )
+
+    records = event.get("Records", [])
+    logger.info("Processing %d S3 record(s)", len(records))
     processed = 0
-    for record in event.get("Records", []):
+
+    for record in records:
         bucket = record["s3"]["bucket"]["name"]
         key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
-        logger.info("Processing s3://%s/%s", bucket, key)
+        size = record["s3"]["object"].get("size", "unknown")
+        logger.info("--- START s3://%s/%s (size=%s bytes) ---", bucket, key, size)
 
-        obj = s3_client.get_object(Bucket=bucket, Key=key)
+        # Download
+        try:
+            obj = s3_client.get_object(Bucket=bucket, Key=key)
+        except Exception as e:
+            logger.error("Failed to get object s3://%s/%s: %s", bucket, key, e)
+            continue
+
         raw = obj["Body"].read()
         text = raw.decode("utf-8", errors="ignore")
         last_modified = obj["LastModified"]
         document_date = last_modified.strftime("%Y-%m-%dT%H:%M:%SZ")
         document_timestamp = int(last_modified.timestamp())
+
         logger.info(
-            "Downloaded object: bytes=%d decoded_chars=%d content_type=%s",
+            "Downloaded: bytes=%d decoded_chars=%d content_type=%s "
+            "last_modified=%s document_timestamp=%d",
             len(raw), len(text), obj.get("ContentType"),
+            document_date, document_timestamp,
         )
 
+        # Chunk
         chunks = chunk_text(text)
-        logger.info("Chunked into %d piece(s)", len(chunks))
+        logger.info("Chunked into %d piece(s) (chunk_size=%d overlap=%d)", len(chunks), CHUNK_SIZE, CHUNK_OVERLAP)
         if not chunks:
-            logger.warning("No text extracted from s3://%s/%s, skipping.", bucket, key)
+            logger.warning("No text extracted from s3://%s/%s — skipping", bucket, key)
             continue
-        logger.info("First chunk preview: %r", chunks[0][:200])
+        logger.info("First chunk preview (200 chars): %r", chunks[0][:200])
 
+        # Embed + build vector records
         vectors = []
         for i, chunk in enumerate(chunks):
+            logger.info("Embedding chunk %d/%d", i + 1, len(chunks))
             embedding = embed(chunk)
-            vectors.append(
-                {
-                    "key": f"{key}#chunk-{i}",
-                    "data": {"float32": embedding},
-                    "metadata": {
-                        "text": chunk,
-                        "source": key,
-                        "chunk_id": str(i),
-                        "document_date": document_date,
-                        "document_timestamp": document_timestamp,
-                    },
-                }
+            metadata = {
+                "source": key,
+                "chunk_id": str(i),
+                "document_date": document_date,
+                "document_timestamp": document_timestamp,
+                "text": chunk,
+            }
+            vector_key = f"{key}#chunk-{i}"
+            vectors.append({
+                "key": vector_key,
+                "data": {"float32": embedding},
+                "metadata": metadata,
+            })
+            logger.info(
+                "Built vector key=%s metadata_keys=%s",
+                vector_key, list(metadata.keys()),
             )
 
-        # Upload in batches (S3 Vectors max 500 per call)
-        for i in range(0, len(vectors), BATCH_SIZE):
-            batch = vectors[i : i + BATCH_SIZE]
-            s3vectors_client.put_vectors(
-                vectorBucketName=VECTOR_BUCKET_NAME,
-                indexName=VECTOR_INDEX_NAME,
-                vectors=batch,
+        # Write to S3 Vectors in batches
+        total_written = 0
+        for batch_start in range(0, len(vectors), BATCH_SIZE):
+            batch = vectors[batch_start: batch_start + BATCH_SIZE]
+            logger.info(
+                "Calling PutVectors: bucket=%s index=%s batch_size=%d offset=%d",
+                VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, len(batch), batch_start,
             )
             logger.info(
-                "PutVectors ok: bucket=%s index=%s batch_size=%d (offset=%d)",
-                VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, len(batch), i,
+                "Sample vector from batch — key=%s metadata=%s",
+                batch[0]["key"],
+                {k: v for k, v in batch[0]["metadata"].items() if k != "text"},
             )
+            try:
+                s3vectors_client.put_vectors(
+                    vectorBucketName=VECTOR_BUCKET_NAME,
+                    indexName=VECTOR_INDEX_NAME,
+                    vectors=batch,
+                )
+                total_written += len(batch)
+                logger.info("PutVectors succeeded: wrote %d vectors (running total=%d)", len(batch), total_written)
+            except Exception as e:
+                logger.error("PutVectors FAILED at offset=%d: %s", batch_start, e)
+                raise
 
-        logger.info("Ingested %d chunks from s3://%s/%s", len(chunks), bucket, key)
+        logger.info(
+            "--- END s3://%s/%s: ingested %d chunks, wrote %d vectors ---",
+            bucket, key, len(chunks), total_written,
+        )
         processed += 1
 
+    logger.info("Ingestion complete: processed %d/%d document(s)", processed, len(records))
     return {"statusCode": 200, "processed_documents": processed}
