@@ -1,0 +1,13 @@
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.local
+    # Mount host AWS credentials so boto3 can reach real AWS
+    volumes:
+      - ${HOME}/.aws:/root/.aws:ro
+    # Default run scrapes the live feed; override per invocation, e.g.:
+    #   docker compose run --rm scraper archive 2021-2025 --limit 100
+    command: ["current"]

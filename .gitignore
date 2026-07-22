@@ -31,8 +31,12 @@ cdk.out/
 # Environment / secrets
 .env
 .env.*
+!.env.local.example
 *.pem
 *.key
+
+# Scraper dry-run output
+app/scraper/out/
 
 # AWS SAM
 .aws-sam/
