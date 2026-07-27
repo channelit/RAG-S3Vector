@@ -3,6 +3,7 @@
     python -m scraper current  [--limit N]
     python -m scraper archive  [SOURCE ...] [--discover] [--list] [--limit N]
     python -m scraper message  ID_OR_URL [ID_OR_URL ...]
+    python -m scraper serve    [--host 0.0.0.0] [--port 8080]
 
 SOURCE is a preset name (2011-2015, 2016-2020, 2021-2025, latest-month),
 an archive-PDF URL, or a local PDF path. Common flags: --dry-run,
@@ -70,6 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_message.add_argument("targets", nargs="+", help="numeric CSMS ID or bulletin URL")
     common(p_message)
 
+    p_serve = sub.add_parser("serve", help="run as an HTTP service (POST /scrape, GET /health)")
+    p_serve.add_argument("--host", default="0.0.0.0")
+    p_serve.add_argument("--port", type=int, default=8080)
+
     return parser
 
 
@@ -119,6 +124,11 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stdout,
     )
     args = build_parser().parse_args(argv)
+
+    if args.mode == "serve":
+        from .server import serve
+        serve(args.host, args.port)
+        return 0
 
     settings = Settings()
     if args.bucket:

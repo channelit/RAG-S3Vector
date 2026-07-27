@@ -109,6 +109,31 @@ python -m scraper current --limit 5 --dry-run
 S3_BUCKET_NAME=my-kb-bucket AWS_PROFILE=terraform python -m scraper current
 ```
 
+### HTTP trigger mode (`serve`)
+
+For deployments where the scraper is triggered via a URL (e.g. Kubernetes):
+
+```bash
+python -m scraper serve --port 8080          # or: docker compose run --rm -p 8080:8080 scraper serve
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | liveness/readiness probe |
+| `GET /status` | state of the current/last run (`idle` / `running` / `succeeded` / `failed`) |
+| `POST /scrape` | trigger a run; returns `202` + `run_id`, or `409` if a run is already in progress |
+
+`POST /scrape` bodies mirror the CLI — `mode` is `current` / `archive` / `message`, everything else is optional:
+
+```json
+{"mode": "current", "limit": 5}
+{"mode": "archive", "sources": ["2021-2025"], "limit": 200}
+{"mode": "archive", "discover": true}
+{"mode": "message", "targets": ["69302472"], "dry_run": true}
+```
+
+Runs execute one at a time in a background thread (the pipeline is deliberately sequential); poll `GET /status` for completion. Invalid arguments are rejected with `400` before a run starts.
+
 ### Useful flags
 
 | Flag | Meaning |
