@@ -138,6 +138,20 @@ class Pipeline:
             return "skipped"
         self._seen_ids.add(bulletin.message_id)
 
+        # The bulletin dateline is authoritative, but when it's missing or
+        # unparseable fall back to the discovery source's date hint (live-feed
+        # pub_date) so the KB sidecar still carries date metadata — without a
+        # date the document can never match a date-range retrieval filter.
+        if bulletin.sent_at is None and ref.pub_date_hint:
+            hinted = parse_sent_datetime(ref.pub_date_hint)
+            if hinted is not None:
+                logger.info(
+                    "CSMS %s: no parseable dateline — using discovery date hint %r",
+                    bulletin.message_id, ref.pub_date_hint,
+                )
+                bulletin.sent_at = hinted
+                bulletin.sent_raw = ref.pub_date_hint
+
         sent_day = bulletin.sent_at.astimezone(timezone.utc).date() if bulletin.sent_at else None
         if not self._date_in_range(sent_day):
             logger.info("CSMS %s (%s) outside date range — filtered", bulletin.message_id, sent_day)

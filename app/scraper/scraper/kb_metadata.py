@@ -23,6 +23,11 @@ _SIDECAR_MAX_BYTES = 10 * 1024
 
 def _date_fields(bulletin: Bulletin) -> dict:
     if bulletin.sent_at is None:
+        logger.warning(
+            "CSMS %s has no sent date — sidecar gets no date attributes, so the "
+            "document will not match any date-range retrieval filter",
+            bulletin.message_id,
+        )
         return {}
     utc = bulletin.sent_at.astimezone(timezone.utc)
     return {

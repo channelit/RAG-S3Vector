@@ -170,7 +170,7 @@ function App() {
                 <legend className="usa-legend">
                   Filter by document date range
                   <span className="usa-hint display-block margin-top-05">
-                    Only documents uploaded within this range will be used as sources. Leave blank to search all documents.
+                    Only CSMS messages published within this range will be used as sources. Leave blank to search all documents.
                   </span>
                 </legend>
                 <div className="grid-row grid-gap">
