@@ -2,17 +2,20 @@
 
 Containerized batch app that downloads CBP **Cargo Systems Messaging Service (CSMS)** messages — current and historical — and uploads them to S3 **one message at a time** (local files are deleted right after each upload), formatted for an **AWS Bedrock Knowledge Base** S3 data source with `.metadata.json` sidecars.
 
-## Sources (verified July 2026)
+## Sources (verified August 2026)
 
 | Mode / source | Coverage | How it works |
 |---|---|---|
-| `current` — GovDelivery widget feed (`USDHSCBP_WIDGET_2/0.json`) | last ~100 messages, live | JSON feed of subject / date / bulletin URL |
+| **`all`** | everything the two sources below cover, in one run | live feed **+** every archive PDF posted on the landing page (preset fallback); dedupes and applies `--since`/`--until` — the recommended way to backfill a date range |
+| `current` — GovDelivery widget feed (`USDHSCBP_WIDGET_2/0.json`) | last **100** messages, live (hard cap — no pagination; ~2–3 months of volume) | JSON feed of subject / date / bulletin URL |
 | `archive 2011-2015` | Sept 2011 – Dec 2015 (legacy IDs `YY-NNNNNN`) | PDF hyperlinks point directly at migrated GovDelivery bulletins |
 | `archive 2016-2020` | Jan 2016 – Oct 2020 | PDF hyperlinks are `lnks.gd` short links, resolved one-by-one via their meta-refresh page |
 | `archive 2021-2025` | Jan 2021 – Dec 2025 | Message IDs parsed from the PDF text table; URL computed from the ID |
-| `archive latest-month` / `--discover` | rolling monthly PDFs | same text-table parsing; `--discover` scrapes the [archive landing page](https://www.cbp.gov/document/publications/csms-archive) for the current PDF set |
+| `archive latest-month` / `--discover` | rolling PDF for the current year (posted ~2 months behind — Aug 2026 edition covers through May 2026) | same text-table parsing; `--discover` scrapes the [archive landing page](https://www.cbp.gov/document/publications/csms-archive) for the current PDF set |
 
-Key mechanics: modern CSMS message numbers **are** GovDelivery bulletin IDs, and the public URL is the ID in hex (`CSMS # 69302472` → `.../accounts/USDHSCBP/bulletins/42178c8`). Every bulletin page — including migrated 2011-era ones — keeps its original `CSMS# <id> - <subject>` title and original sent dateline, so the bulletin HTML is the single authoritative metadata source; archive PDFs are used for discovery only.
+Key mechanics: modern CSMS message numbers **are** GovDelivery bulletin IDs, and the public URL is the ID in hex (`CSMS # 69302472` → `.../accounts/USDHSCBP/bulletins/42178c8`). Every bulletin page — including migrated 2011-era ones — keeps its original `CSMS# <id> - <subject>` title and original sent dateline, so the bulletin HTML is the single authoritative metadata source; archive PDFs are used for discovery — though table-format editions also supply each row's **Sent** date, which `--since`/`--until` runs use to skip out-of-range messages without fetching them (it also becomes the sidecar's date fallback when a bulletin page has no parseable dateline).
+
+Coverage note: the feed's 100-message cap and the rolling archive's posting lag normally overlap (feed reaches ~2–3 months back; the rolling PDF trails ~2 months), which is why `all` unions both — run it periodically to stay gap-free.
 
 ## What gets uploaded
 
@@ -81,6 +84,9 @@ cp .env.local.example .env.local   # set S3_BUCKET_NAME (+ AWS_PROFILE)
 
 docker compose build
 
+# ONE command, feed + archives, within a date range (recommended)
+docker compose run --rm scraper all --since 2026-01-01
+
 # Live feed (last ~100 messages)
 docker compose run --rm scraper current
 
@@ -126,6 +132,7 @@ python -m scraper serve --port 8080          # or: docker compose run --rm -p 80
 `POST /scrape` bodies mirror the CLI — `mode` is `current` / `archive` / `message`, everything else is optional:
 
 ```json
+{"mode": "all", "since": "2026-01-01"}
 {"mode": "current", "limit": 5}
 {"mode": "archive", "sources": ["2021-2025"], "limit": 200}
 {"mode": "archive", "discover": true}
@@ -139,7 +146,8 @@ Runs execute one at a time in a background thread (the pipeline is deliberately 
 | Flag | Meaning |
 |---|---|
 | `--limit N` | stop after N **new** messages uploaded (skips don't count) |
-| `--since / --until YYYY-MM-DD` | date-range filter on sent date |
+| `--since / --until YYYY-MM-DD` | date-range filter on sent date; out-of-range messages with a known date (feed `pub_date` or an archive PDF's Sent column) are skipped **without** fetching, and whole archive PDFs whose filename years can't intersect the range are skipped in `all` mode |
+| `--no-discover` (`all`) | use the built-in archive presets instead of scraping the landing page |
 | `--force` | re-process messages already in S3 |
 | `--dry-run -o DIR` | no AWS; write and keep files locally |
 | `--list` (archive) | print discovered message refs without processing |

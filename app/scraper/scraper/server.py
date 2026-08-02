@@ -6,6 +6,7 @@ Endpoints:
     GET  /health   liveness/readiness probe (always 200 while the process is up)
     GET  /status   state of the current/last run
     POST /scrape   trigger a run; body mirrors the CLI, e.g.
+                   {"mode": "all", "since": "2026-01-01"}
                    {"mode": "current", "limit": 5}
                    {"mode": "archive", "sources": ["2021-2025"], "limit": 200}
                    {"mode": "message", "targets": ["69302472"], "dry_run": true}
@@ -35,7 +36,7 @@ _state: dict[str, Any] = {"status": "idle"}
 class ScrapeRequest(BaseModel):
     mode: str
     sources: list[str] = []          # archive mode: presets, PDF URLs, local paths
-    discover: bool = False           # archive mode
+    discover: bool = False           # archive mode ("all" mode always discovers, with preset fallback)
     targets: list[str] = []          # message mode: CSMS IDs or bulletin URLs
     limit: Optional[int] = None
     since: Optional[str] = None      # YYYY-MM-DD
@@ -48,8 +49,8 @@ class ScrapeRequest(BaseModel):
     delay: Optional[float] = None
 
     def to_argv(self) -> list[str]:
-        if self.mode not in ("current", "archive", "message"):
-            raise ValueError("mode must be one of: current, archive, message")
+        if self.mode not in ("all", "current", "archive", "message"):
+            raise ValueError("mode must be one of: all, current, archive, message")
         argv = [self.mode]
         if self.mode == "archive":
             if not self.sources and not self.discover:

@@ -20,12 +20,12 @@ Ingestion Lambda ──► Bedrock embed model ──► S3 Vectors (index)
 Query Lambda ──► Bedrock embed model ──► S3 Vectors query (topK + numeric date pre-filter)
               └──► Bedrock LLM (Llama prompt format) + Guardrail ──► answer + sources
               ▲
-              │ invoked via Lambda Function URL (CloudFront UI) or boto3 lambda.invoke() (local container UI)
+              │ invoked via Lambda Function URL (CloudFront UI only)
 ```
 
-Two independent frontends both call the same Query Lambda, nothing else:
+Two independent frontends with **different query paths**:
 - `app/ui/s3-static/index.html` — a single self-contained static page (USWDS via CDN), deployed to S3 + CloudFront by CDK (`resource_ui.py`). CloudFront routes `/api/*` to the Query Lambda's Function URL.
-- `app/ui/container/` — a FastAPI + React app (`backend/main.py` invokes the Query Lambda directly via `boto3`). Built as a Docker image and run **locally only** via `docker-compose.yml`; the matching Fargate deployment (`resource_fargate.py`) is fully wired up but commented out in `rag_stack.py` — UI is not deployed to Fargate.
+- `app/ui/container/` — a FastAPI + React app; `backend/main.py` does **not** call the Query Lambda — it queries a Bedrock Knowledge Base (`KNOWLEDGE_BASE_ID` in `.env.local`) via `bedrock-agent-runtime.retrieve()` and writes the answer with `bedrock-runtime.converse()`. Date filters pre-filter on the sidecar `date_numeric` attribute and are strictly post-filter-enforced (undated chunks are excluded when a range is set). Built as a Docker image and run **locally only** via `docker-compose.yml`; the matching Fargate deployment (`resource_fargate.py`) is fully wired up but commented out in `rag_stack.py` — UI is not deployed to Fargate.
 
 ## Structure
 
@@ -116,7 +116,8 @@ npm run dev
 cd app/scraper
 cp .env.local.example .env.local          # set S3_BUCKET_NAME (KB source bucket)
 docker compose build
-docker compose run --rm scraper current                      # live feed (~100 latest)
+docker compose run --rm scraper all --since 2026-01-01       # feed + all archives, one command
+docker compose run --rm scraper current                      # live feed (100 latest, hard cap)
 docker compose run --rm scraper archive 2021-2025 --limit 200
 python -m scraper message 69302472 --dry-run                 # no AWS needed, writes to ./out
 ```

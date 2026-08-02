@@ -67,6 +67,32 @@ def parse_sent_datetime(raw: str) -> datetime | None:
     return naive.replace(tzinfo=timezone(timedelta(hours=offset)))
 
 
+_DATE_ONLY_RE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$")
+
+
+def parse_date_hint(raw: str | None) -> datetime | None:
+    """Parse a discovery-source date hint.
+
+    Accepts either a full dateline stamp ('07/21/2026 05:26 PM EDT', the live
+    feed's pub_date format) or a bare M/D/YYYY (the archive PDFs' Sent
+    column). Bare dates get midnight Eastern — day-level precision is all the
+    hints are used for (range pre-filtering and sidecar date fallback).
+    """
+    if not raw:
+        return None
+    dt = parse_sent_datetime(raw)
+    if dt is not None:
+        return dt
+    m = _DATE_ONLY_RE.match(raw)
+    if not m:
+        return None
+    month, day, year = (int(g) for g in m.groups())
+    try:
+        return datetime(year, month, day, tzinfo=timezone(timedelta(hours=-5)))
+    except ValueError:
+        return None
+
+
 _BLOCK_TAGS = ["p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "table", "ul", "ol"]
 
 

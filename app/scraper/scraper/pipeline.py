@@ -16,7 +16,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import date, timezone
 
-from .bulletin import Bulletin, fetch_bulletin, parse_sent_datetime
+from .bulletin import Bulletin, fetch_bulletin, parse_date_hint
 from .config import Settings
 from .countries import detect_countries
 from .csms import MessageRef, bulletin_url_for_id, canonical_bulletin_url, id_from_bulletin_url, slugify
@@ -93,9 +93,7 @@ class Pipeline:
         return True
 
     def _hint_date(self, ref: MessageRef) -> date | None:
-        if not ref.pub_date_hint:
-            return None
-        dt = parse_sent_datetime(ref.pub_date_hint)
+        dt = parse_date_hint(ref.pub_date_hint)
         return dt.astimezone(timezone.utc).date() if dt else None
 
     # ------------------------------------------------------------------
@@ -140,10 +138,11 @@ class Pipeline:
 
         # The bulletin dateline is authoritative, but when it's missing or
         # unparseable fall back to the discovery source's date hint (live-feed
-        # pub_date) so the KB sidecar still carries date metadata — without a
-        # date the document can never match a date-range retrieval filter.
+        # pub_date or an archive PDF's Sent column) so the KB sidecar still
+        # carries date metadata — without a date the document can never match
+        # a date-range retrieval filter.
         if bulletin.sent_at is None and ref.pub_date_hint:
-            hinted = parse_sent_datetime(ref.pub_date_hint)
+            hinted = parse_date_hint(ref.pub_date_hint)
             if hinted is not None:
                 logger.info(
                     "CSMS %s: no parseable dateline — using discovery date hint %r",

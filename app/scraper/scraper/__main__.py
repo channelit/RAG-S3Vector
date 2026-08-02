@@ -1,13 +1,18 @@
 """CLI entry point.
 
+    python -m scraper all      [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--limit N]
     python -m scraper current  [--limit N]
     python -m scraper archive  [SOURCE ...] [--discover] [--list] [--limit N]
     python -m scraper message  ID_OR_URL [ID_OR_URL ...]
     python -m scraper serve    [--host 0.0.0.0] [--port 8080]
 
-SOURCE is a preset name (2011-2015, 2016-2020, 2021-2025, latest-month),
-an archive-PDF URL, or a local PDF path. Common flags: --dry-run,
---output-dir, --force, --since/--until YYYY-MM-DD, --bucket, --prefix.
+`all` is the one-command mode: it unions the live feed with every archive PDF
+currently posted on the CBP landing page (falling back to the built-in
+presets if discovery fails) and processes everything in the requested date
+range. SOURCE is a preset name (2011-2015, 2016-2020, 2021-2025,
+latest-month), an archive-PDF URL, or a local PDF path. Common flags:
+--dry-run, --output-dir, --force, --since/--until YYYY-MM-DD, --bucket,
+--prefix.
 """
 
 import argparse
@@ -15,7 +20,12 @@ import logging
 import sys
 from datetime import datetime
 
-from .archive_pdf import KNOWN_ARCHIVES, discover_archive_pdfs, refs_from_archive_pdf
+from .archive_pdf import (
+    KNOWN_ARCHIVES,
+    archive_filename_years,
+    discover_archive_pdfs,
+    refs_from_archive_pdf,
+)
 from .config import Settings
 from .csms import MessageRef, bulletin_url_for_id, canonical_bulletin_url
 from .feed import list_feed_messages
@@ -55,6 +65,16 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--delay", type=float, default=None,
                        help="override REQUEST_DELAY_SECONDS between HTTP requests")
 
+    p_all = sub.add_parser(
+        "all",
+        help="live feed + every posted archive PDF in one run (pair with --since/--until)",
+    )
+    p_all.add_argument("--no-discover", action="store_true",
+                       help="use the built-in archive presets instead of scraping the landing page")
+    p_all.add_argument("--list", action="store_true", dest="list_only",
+                       help="list discovered message refs without processing")
+    common(p_all)
+
     p_current = sub.add_parser("current", help="scrape the live feed (last ~100 messages)")
     common(p_current)
 
@@ -78,7 +98,47 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _all_archive_sources(args, client: WebClient) -> list[str]:
+    """Archive PDFs for `all` mode: landing-page discovery with preset fallback."""
+    if args.no_discover:
+        return list(KNOWN_ARCHIVES.values())
+    try:
+        sources = discover_archive_pdfs(client)
+    except Exception as exc:
+        logger.warning("Archive discovery failed (%s) — falling back to built-in presets", exc)
+        sources = []
+    return sources or list(KNOWN_ARCHIVES.values())
+
+
 def collect_refs(args, client: WebClient) -> list[MessageRef]:
+    if args.mode == "all":
+        # Live feed first (newest messages, precise pub_date hints), then every
+        # archive PDF whose filename years could intersect the requested range.
+        refs = list_feed_messages(client)
+        for source in _all_archive_sources(args, client):
+            years = archive_filename_years(source)
+            if years and (
+                (args.since and max(years) < args.since.year)
+                or (args.until and min(years) > args.until.year)
+            ):
+                logger.info(
+                    "Skipping archive %s — filename years %s outside %s..%s",
+                    source, sorted(years), args.since or "*", args.until or "*",
+                )
+                continue
+            refs.extend(refs_from_archive_pdf(client, source))
+
+        # Feed and the rolling monthly archive overlap by design; keep first sighting.
+        seen: set[str] = set()
+        unique: list[MessageRef] = []
+        for ref in refs:
+            key = ref.message_id or ref.url or ref.lnks_url
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(ref)
+        return unique
+
     if args.mode == "current":
         return list_feed_messages(client)
 
@@ -137,6 +197,12 @@ def main(argv: list[str] | None = None) -> int:
         settings.s3_prefix = args.prefix if args.prefix.endswith("/") or not args.prefix else args.prefix + "/"
     if args.delay is not None:
         settings.request_delay = args.delay
+
+    if args.mode == "all" and not args.since and args.limit is None:
+        logger.warning(
+            "all mode without --since or --limit will backfill the entire archive "
+            "(30k+ messages since 2011)"
+        )
 
     client = WebClient(settings)
     refs = collect_refs(args, client)
