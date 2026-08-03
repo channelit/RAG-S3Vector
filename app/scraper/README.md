@@ -120,6 +120,7 @@ S3_BUCKET_NAME=my-kb-bucket AWS_PROFILE=terraform python -m scraper current
 For deployments where the scraper is triggered via a URL (e.g. Kubernetes):
 
 ```bash
+docker compose up scraper-api                # compose service with port 8080 published
 python -m scraper serve --port 8080          # or: docker compose run --rm -p 8080:8080 scraper serve
 ```
 
