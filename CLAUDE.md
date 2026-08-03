@@ -25,7 +25,7 @@ Query Lambda ──► Bedrock embed model ──► S3 Vectors query (topK + nu
 
 Two independent frontends with **different query paths**:
 - `app/ui/s3-static/index.html` — a single self-contained static page (USWDS via CDN), deployed to S3 + CloudFront by CDK (`resource_ui.py`). CloudFront routes `/api/*` to the Query Lambda's Function URL.
-- `app/ui/container/` — a FastAPI + React app; `backend/main.py` does **not** call the Query Lambda — it queries a Bedrock Knowledge Base (`KNOWLEDGE_BASE_ID` in `.env.local`) via `bedrock-agent-runtime.retrieve()` and writes the answer with `bedrock-runtime.converse()`. Date filters pre-filter on the sidecar `date_numeric` attribute and are strictly post-filter-enforced (undated chunks are excluded when a range is set). Built as a Docker image and run **locally only** via `docker-compose.yml`; the matching Fargate deployment (`resource_fargate.py`) is fully wired up but commented out in `rag_stack.py` — UI is not deployed to Fargate.
+- `app/ui/container/` — a FastAPI + React app; `backend/main.py` does **not** call the Query Lambda — it queries a Bedrock Knowledge Base (`KNOWLEDGE_BASE_ID` in `.env.local`) via `bedrock-agent-runtime.retrieve()` and writes the answer with `bedrock-runtime.converse()`, applying the guardrail in `GUARDRAIL_ID`/`GUARDRAIL_VERSION` when set (ID/ARN, not name; sources are suppressed when it intervenes). Date filters pre-filter on the sidecar `date_numeric` attribute and are strictly post-filter-enforced (undated chunks are excluded when a range is set). Built as a Docker image and run **locally only** via `docker-compose.yml`; the matching Fargate deployment (`resource_fargate.py`) is fully wired up but commented out in `rag_stack.py` — UI is not deployed to Fargate.
 
 ## Structure
 

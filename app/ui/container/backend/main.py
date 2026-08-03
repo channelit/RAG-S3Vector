@@ -33,6 +33,10 @@ KNOWLEDGE_BASE_ID = os.environ["KNOWLEDGE_BASE_ID"]
 # generation are separate calls: bedrock-agent-runtime retrieve() for chunks,
 # then bedrock-runtime converse() to write the answer.
 GEN_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+# Optional Bedrock Guardrail applied to generation. GUARDRAIL_ID takes the
+# guardrail's ID or ARN (not its name); version is "DRAFT" or a published number.
+GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID") or None
+GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
 NUM_RESULTS = int(os.environ.get("KB_NUM_RESULTS", "8"))
 # When the KB can't enforce the date filter natively, fetch deeper so the
 # post-filter has enough candidates left after dropping out-of-range chunks.
@@ -220,20 +224,35 @@ def _source_label(result: dict) -> str:
     return f"{title} — {uri}" if title else uri
 
 
-def _generate_answer(query: str, results: list[dict]) -> str:
+def _generate_answer(query: str, results: list[dict]) -> tuple[str, bool]:
+    """Write the answer with converse(), applying the guardrail when
+    configured. Returns (answer_text, guardrail_intervened)."""
     passages = []
     for i, result in enumerate(results, 1):
         text = result.get("content", {}).get("text", "")
         passages.append(f"[{i}] (source: {_source_label(result)})\n{text}")
     prompt = "Context passages:\n\n" + "\n\n".join(passages) + f"\n\nQuestion: {query}"
 
-    response = bedrock_runtime.converse(
-        modelId=GEN_MODEL_ID,
-        system=[{"text": SYSTEM_PROMPT}],
-        messages=[{"role": "user", "content": [{"text": prompt}]}],
-        inferenceConfig={"maxTokens": 1024},
-    )
-    return response["output"]["message"]["content"][0]["text"]
+    kwargs: dict = {
+        "modelId": GEN_MODEL_ID,
+        "system": [{"text": SYSTEM_PROMPT}],
+        "messages": [{"role": "user", "content": [{"text": prompt}]}],
+        "inferenceConfig": {"maxTokens": 1024},
+    }
+    if GUARDRAIL_ID:
+        kwargs["guardrailConfig"] = {
+            "guardrailIdentifier": GUARDRAIL_ID,
+            "guardrailVersion": GUARDRAIL_VERSION,
+        }
+
+    response = bedrock_runtime.converse(**kwargs)
+    content = response.get("output", {}).get("message", {}).get("content", [])
+    answer = next((block["text"] for block in content if "text" in block), "")
+    intervened = response.get("stopReason") == "guardrail_intervened"
+    if intervened:
+        # answer now carries the guardrail's configured blocked/masked message
+        logger.warning("Guardrail %s v%s intervened", GUARDRAIL_ID, GUARDRAIL_VERSION)
+    return answer, intervened
 
 
 @app.get("/health")
@@ -272,10 +291,14 @@ def query(req: QueryRequest):
 
         if not results:
             return {"answer": "No matching documents were found in the knowledge base.", "sources": []}
-        answer = _generate_answer(req.query, results)
+        answer, guardrail_intervened = _generate_answer(req.query, results)
     except (ClientError, BotoCoreError) as exc:
         logger.error("Knowledge Base query failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"Knowledge Base query failed: {exc}")
+
+    if guardrail_intervened:
+        # Don't cite sources under a blocked/masked answer
+        return {"answer": answer or "Response blocked by content policy.", "sources": []}
 
     sources: list[str] = []
     for result in results:
