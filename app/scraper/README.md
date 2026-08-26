@@ -6,8 +6,9 @@ Containerized batch app that downloads CBP **Cargo Systems Messaging Service (CS
 
 | Mode / source | Coverage | How it works |
 |---|---|---|
-| **`all`** | everything the two sources below cover, in one run | live feed **+** every archive PDF posted on the landing page (preset fallback); dedupes and applies `--since`/`--until` — the recommended way to backfill a date range |
+| **`all`** | everything the sources below cover, in one run | live feeds **+** every archive PDF posted on the landing page (preset fallback); dedupes and applies `--since`/`--until` — the recommended way to backfill a date range |
 | `current` — GovDelivery widget feed (`USDHSCBP_WIDGET_2/0.json`) | last **100** messages, live (hard cap — no pagination; ~2–3 months of volume) | JSON feed of subject / date / bulletin URL |
+| `current` — account RSS feed (`public.govdelivery.com/accounts/USDHSCBP/feed.rss`) | last **~25** USDHSCBP bulletins of every topic — typically only a handful are CSMS | RSS 2.0; non-CSMS items (Newsroom, media releases, TIN/CAMS/PGA) are filtered out by title. Almost always a subset of the widget feed — unioned in as redundancy, and as a fallback if the widget JSONP format changes |
 | `archive 2011-2015` | Sept 2011 – Dec 2015 (legacy IDs `YY-NNNNNN`) | PDF hyperlinks point directly at migrated GovDelivery bulletins |
 | `archive 2016-2020` | Jan 2016 – Oct 2020 | PDF hyperlinks are `lnks.gd` short links, resolved one-by-one via their meta-refresh page |
 | `archive 2021-2025` | Jan 2021 – Dec 2025 | Message IDs parsed from the PDF text table; URL computed from the ID |
@@ -87,7 +88,7 @@ docker compose build
 # ONE command, feed + archives, within a date range (recommended)
 docker compose run --rm scraper all --since 2026-01-01
 
-# Live feed (last ~100 messages)
+# Live feeds (widget JSON, last ~100 messages, + account RSS)
 docker compose run --rm scraper current
 
 # Backfill an archive era, capped at 200 new messages per run

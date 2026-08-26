@@ -11,6 +11,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import unquote, urlparse
 
 from bs4 import BeautifulSoup
@@ -73,16 +74,24 @@ _DATE_ONLY_RE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$")
 def parse_date_hint(raw: str | None) -> datetime | None:
     """Parse a discovery-source date hint.
 
-    Accepts either a full dateline stamp ('07/21/2026 05:26 PM EDT', the live
-    feed's pub_date format) or a bare M/D/YYYY (the archive PDFs' Sent
-    column). Bare dates get midnight Eastern — day-level precision is all the
-    hints are used for (range pre-filtering and sidecar date fallback).
+    Accepts a full dateline stamp ('07/21/2026 05:26 PM EDT', the widget
+    feed's pub_date format), an RFC-822 stamp ('Tue, 25 Aug 2026 15:16:40
+    -0500', the RSS feed's pubDate format), or a bare M/D/YYYY (the archive
+    PDFs' Sent column). Bare dates get midnight Eastern — day-level precision
+    is all the hints are used for (range pre-filtering and sidecar date
+    fallback).
     """
     if not raw:
         return None
     dt = parse_sent_datetime(raw)
     if dt is not None:
         return dt
+    try:
+        dt = parsedate_to_datetime(raw)
+    except (ValueError, TypeError):
+        dt = None
+    if dt is not None:
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone(timedelta(hours=-5)))
     m = _DATE_ONLY_RE.match(raw)
     if not m:
         return None

@@ -6,7 +6,7 @@
     python -m scraper message  ID_OR_URL [ID_OR_URL ...]
     python -m scraper serve    [--host 0.0.0.0] [--port 8080]
 
-`all` is the one-command mode: it unions the live feed with every archive PDF
+`all` is the one-command mode: it unions the live feeds with every archive PDF
 currently posted on the CBP landing page (falling back to the built-in
 presets if discovery fails) and processes everything in the requested date
 range. SOURCE is a preset name (2011-2015, 2016-2020, 2021-2025,
@@ -28,7 +28,7 @@ from .archive_pdf import (
 )
 from .config import Settings
 from .csms import MessageRef, bulletin_url_for_id, canonical_bulletin_url
-from .feed import list_feed_messages
+from .feed import list_current_messages
 from .pipeline import Pipeline
 from .web import WebClient
 
@@ -75,7 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="list discovered message refs without processing")
     common(p_all)
 
-    p_current = sub.add_parser("current", help="scrape the live feed (last ~100 messages)")
+    p_current = sub.add_parser(
+        "current",
+        help="scrape the live feeds — widget JSON (last ~100 messages) + account RSS",
+    )
     common(p_current)
 
     p_archive = sub.add_parser("archive", help="scrape archive PDF(s)")
@@ -112,9 +115,9 @@ def _all_archive_sources(args, client: WebClient) -> list[str]:
 
 def collect_refs(args, client: WebClient) -> list[MessageRef]:
     if args.mode == "all":
-        # Live feed first (newest messages, precise pub_date hints), then every
+        # Live feeds first (newest messages, precise pub_date hints), then every
         # archive PDF whose filename years could intersect the requested range.
-        refs = list_feed_messages(client)
+        refs = list_current_messages(client)
         for source in _all_archive_sources(args, client):
             years = archive_filename_years(source)
             if years and (
@@ -140,7 +143,7 @@ def collect_refs(args, client: WebClient) -> list[MessageRef]:
         return unique
 
     if args.mode == "current":
-        return list_feed_messages(client)
+        return list_current_messages(client)
 
     if args.mode == "archive":
         sources = list(args.sources)
