@@ -25,7 +25,7 @@ Query Lambda ──► Bedrock embed model ──► S3 Vectors query (topK + nu
 
 Two independent frontends with **different query paths**:
 - `app/ui/s3-static/index.html` — a single self-contained static page (USWDS via CDN), deployed to S3 + CloudFront by CDK (`resource_ui.py`). CloudFront routes `/api/*` to the Query Lambda's Function URL.
-- `app/ui/container/` — a FastAPI + React app; `backend/main.py` does **not** call the Query Lambda — it queries a Bedrock Knowledge Base (`KNOWLEDGE_BASE_ID` in `.env.local`) via `bedrock-agent-runtime.retrieve()` and writes the answer with `bedrock-runtime.converse()`, applying the guardrail in `GUARDRAIL_ID`/`GUARDRAIL_VERSION` when set (ID/ARN, not name; sources are suppressed when it intervenes). Date filters pre-filter on the sidecar `date_numeric` attribute and are strictly post-filter-enforced (undated chunks are excluded when a range is set). Built as a Docker image and run **locally only** via `docker-compose.yml`; the matching Fargate deployment (`resource_fargate.py`) is fully wired up but commented out in `rag_stack.py` — UI is not deployed to Fargate.
+- `app/ui/container/` — a FastAPI + React app; `backend/main.py` does **not** call the Query Lambda — it runs a guardrailed Bedrock Converse **tool loop** directly against the S3 Vectors index (`VECTOR_BUCKET_NAME`/`VECTOR_INDEX_NAME` in `.env.local`). The LLM chooses between two tools: `search_messages` (embed + `query_vectors` topK with a numeric `document_timestamp` pre-filter) for content questions, and `count_messages` (exact distinct-document counts with date-range and keyword filters) for "how many" questions. Counts come from an in-memory corpus manifest built by paging `s3vectors list_vectors` and deduplicating chunks by `source` — deliberately **not** persisted to S3, since writing into the documents bucket would re-trigger the ingestion Lambda; it refreshes on a TTL (`MANIFEST_TTL_SECONDS`). The guardrail in `GUARDRAIL_ID`/`GUARDRAIL_VERSION` (ID/ARN, not name) applies to every `converse()` call; sources are suppressed when it intervenes. Sources are returned as `{label, url}`: CSMS message text links to its public GovDelivery bulletin (ID in hex), archive-derived pages link to their fetched URL, and anything else gets a presigned S3 link when `DOCUMENTS_BUCKET_NAME` is set (else `url` is null and the UI renders plain text). The UI date range is authoritative: it clamps every tool call (the model can narrow it, never widen it) and undated chunks are excluded whenever a range is set. Built as a Docker image and run **locally only** via `docker-compose.yml`; the matching Fargate deployment (`resource_fargate.py`) is fully wired up but commented out in `rag_stack.py` — UI is not deployed to Fargate.
 
 ## Structure
 
@@ -97,7 +97,7 @@ Runs the FastAPI/React UI locally against real AWS (Lambda, Bedrock, Guardrails,
 
 ```bash
 cd app/ui/container
-cp .env.local.example .env.local     # set QUERY_LAMBDA_NAME and AWS_PROFILE
+cp .env.local.example .env.local     # set VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, AWS_PROFILE
 docker compose up --build            # http://localhost:8000, mounts ~/.aws read-only
 docker compose down
 ```

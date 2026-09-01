@@ -99,6 +99,12 @@ def lambda_handler(event, context):
         size = record["s3"]["object"].get("size", "unknown")
         logger.info("--- START s3://%s/%s (size=%s bytes) ---", bucket, key, size)
 
+        # Bedrock KB .metadata.json sidecars ride along in this bucket — they
+        # describe documents and must never be indexed as documents themselves.
+        if key.endswith(".metadata.json"):
+            logger.info("Skipping metadata sidecar: %s", key)
+            continue
+
         # Route archive PDFs to the dedicated handler
         if ArchivePdfHandler.should_handle(key):
             logger.info("Routing to ArchivePdfHandler for archive PDF: %s", key)

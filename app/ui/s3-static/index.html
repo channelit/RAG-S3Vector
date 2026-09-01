@@ -6,13 +6,113 @@
   <title>CSMS Intelligent Retrieval and Compliance Assistant | CBP</title>
   <link rel="stylesheet" href="https://unpkg.com/@uswds/uswds@3.11.0/dist/css/uswds.min.css" />
   <style>
-    /* CBP header identity */
-    .cbp-logo { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; }
-    .cbp-logo__seal { height: 56px; width: 56px; object-fit: contain; flex-shrink: 0; }
-    .cbp-logo__text { display: flex; flex-direction: column; line-height: 1.3; }
-    .cbp-logo__agency { font-size: 1rem; font-weight: 700; color: #1b1b1b; }
-    .cbp-logo__subagency { font-size: 0.8rem; color: #565c65; }
-    .cbp-logo__app { font-size: 0.8rem; font-style: italic; color: #005ea2; margin-top: 0.1rem; }
+    /* ---- cbp.gov-style dark header ------------------------------------- */
+    :root {
+      --cbp-black: #000305;
+    }
+
+    /* Government banner sits on the same dark ground as on cbp.gov */
+    .usa-banner {
+      background-color: var(--cbp-black);
+    }
+    .usa-banner__header-text,
+    .usa-banner__header-action,
+    .usa-banner__button,
+    .usa-banner__button-text {
+      color: #fff;
+    }
+    .usa-banner__header-action::after,
+    .usa-banner__button::after,
+    .usa-banner__button[aria-expanded="true"]::after {
+      background-color: #fff;
+    }
+    .usa-banner__button:hover .usa-banner__button-text,
+    .usa-banner__button[aria-expanded="true"] .usa-banner__button-text {
+      color: #fff;
+    }
+    /* Expanded "how you know" panel keeps USWDS's light ground so its dark text stays readable */
+    .usa-banner__content {
+      background-color: #f0f0f0;
+      color: #1b1b1b;
+    }
+
+    .cbp-header.usa-header--extended {
+      background-color: var(--cbp-black);
+      border-bottom: 1px solid #dedfe0;
+    }
+    .cbp-header .usa-navbar {
+      border-bottom: none;
+    }
+    .cbp-wordmark {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    /* USWDS caps the extended-header logo at 33% width; the wordmark must never
+       shrink below its natural 225x69 (the app name wraps instead). */
+    .cbp-header .usa-logo {
+      max-width: none;
+      width: auto;
+    }
+    .cbp-wordmark__link {
+      display: inline-flex;
+      flex: 0 0 auto;
+      line-height: 0;
+    }
+    .cbp-wordmark__img {
+      height: 38px;
+      width: auto;
+      max-width: none;
+    }
+    .cbp-wordmark__app {
+      color: #fff;
+      font-size: 0.93rem;
+      line-height: 1.3;
+      min-width: 0;
+      max-width: 14rem;
+      padding-left: 1rem;
+      border-left: 1px solid rgba(255, 255, 255, 0.45);
+    }
+
+    @media (min-width: 64em) {
+      .cbp-wordmark__img {
+        height: 69px;
+      }
+      .cbp-header .usa-logo {
+        max-width: calc(100% - 20rem); /* leave room for the search box on the right */
+      }
+      .cbp-header .usa-nav {
+        background-color: var(--cbp-black);
+        border-top: none;
+      }
+      .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link,
+      .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link:hover {
+        color: #fff;
+        font-weight: 700;
+      }
+      .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link:hover::after,
+      .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link.usa-current::after {
+        background-color: #fff;
+      }
+      /* Underlined, borderless search field as on cbp.gov */
+      .cbp-search .usa-input {
+        background-color: transparent;
+        color: #fff;
+        border: 0;
+        border-bottom: 1px solid #fff;
+        border-radius: 0;
+      }
+      .cbp-search .usa-input::placeholder {
+        color: #dfe1e2;
+      }
+      .cbp-search .usa-button {
+        background-color: transparent;
+      }
+      .cbp-search .usa-button:hover,
+      .cbp-search .usa-button:active {
+        background-color: #1b1b1b;
+      }
+    }
     .usa-footer__logo-img { height: 40px; width: 40px; object-fit: contain; }
     .usa-identifier__logo-img { height: 48px; width: 48px; object-fit: contain; }
     .answer-text { white-space: pre-wrap; }
@@ -30,7 +130,7 @@
         <div class="usa-banner__inner">
           <div class="grid-col-auto">
             <img aria-hidden="true" class="usa-banner__header-flag"
-                 src="https://unpkg.com/@uswds/uswds@3.11.0/dist/img/us_flag_small.png" alt="" />
+                 src="img/us_flag_small.png" alt="" />
           </div>
           <div class="grid-col-fill tablet:grid-col-auto" aria-hidden="true">
             <p class="usa-banner__header-text">An official website of the United States government</p>
@@ -46,7 +146,7 @@
         <div class="grid-row grid-gap-lg">
           <div class="usa-banner__guidance tablet:grid-col-6">
             <img class="usa-banner__icon usa-media-block__img"
-                 src="https://unpkg.com/@uswds/uswds@3.11.0/dist/img/icon-dot-gov.svg"
+                 src="img/icon-dot-gov.svg"
                  role="img" alt="" aria-hidden="true" />
             <div class="usa-media-block__body">
               <p><strong>Official websites use .gov</strong><br />
@@ -55,7 +155,7 @@
           </div>
           <div class="usa-banner__guidance tablet:grid-col-6">
             <img class="usa-banner__icon usa-media-block__img"
-                 src="https://unpkg.com/@uswds/uswds@3.11.0/dist/img/icon-https.svg"
+                 src="img/icon-https.svg"
                  role="img" alt="" aria-hidden="true" />
             <div class="usa-media-block__body">
               <p><strong>Secure .gov websites use HTTPS</strong><br />
@@ -67,23 +167,61 @@
     </div>
   </section>
 
-  <!-- Header -->
+  <!-- Header (cbp.gov-style extended header; USWDS JS drives the mobile menu) -->
   <div class="usa-overlay"></div>
-  <header class="usa-header usa-header--basic" role="banner">
-    <div class="usa-nav-container">
-      <div class="usa-navbar">
-        <div class="usa-logo cbp-logo">
-          <img class="cbp-logo__seal"
-               src="https://upload.wikimedia.org/wikipedia/commons/0/08/Seal_of_U.S._Customs_and_Border_Protection.png"
-               alt="U.S. Customs and Border Protection seal" />
-          <div class="cbp-logo__text">
-            <span class="cbp-logo__agency">U.S. Customs and Border Protection</span>
-            <span class="cbp-logo__subagency">U.S. Department of Homeland Security</span>
-            <em class="cbp-logo__app">CSMS Intelligent Retrieval and Compliance Assistant</em>
-          </div>
+  <header class="usa-header usa-header--extended cbp-header">
+    <div class="usa-navbar">
+      <div class="usa-logo cbp-wordmark" id="extended-logo">
+        <a href="https://www.cbp.gov" class="cbp-wordmark__link">
+          <img class="cbp-wordmark__img" src="img/cbp-wordmark-white.png"
+               alt="U.S. Customs and Border Protection, U.S. Department of Homeland Security. CBP.gov home" />
+        </a>
+        <span class="cbp-wordmark__app">CSMS Intelligent Retrieval and Compliance Assistant</span>
+      </div>
+      <button type="button" class="usa-menu-btn">Menu</button>
+    </div>
+    <nav aria-label="Primary navigation" class="usa-nav">
+      <div class="usa-nav__inner">
+        <button type="button" class="usa-nav__close">
+          <img src="img/close.svg" role="img" alt="Close" />
+        </button>
+        <ul class="usa-nav__primary usa-accordion">
+          <li class="usa-nav__primary-item">
+            <a href="https://www.cbp.gov/travel" class="usa-nav__link"><span>Travel</span></a>
+          </li>
+          <li class="usa-nav__primary-item">
+            <a href="https://www.cbp.gov/trade" class="usa-nav__link"><span>Trade</span></a>
+          </li>
+          <li class="usa-nav__primary-item">
+            <a href="https://www.cbp.gov/border-security" class="usa-nav__link"><span>Border Security</span></a>
+          </li>
+          <li class="usa-nav__primary-item">
+            <a href="https://www.cbp.gov/newsroom" class="usa-nav__link"><span>Newsroom</span></a>
+          </li>
+          <li class="usa-nav__primary-item">
+            <a href="https://www.cbp.gov/about" class="usa-nav__link"><span>About CBP</span></a>
+          </li>
+          <li class="usa-nav__primary-item">
+            <a href="https://careers.cbp.gov/s/" class="usa-nav__link"><span>Careers</span></a>
+          </li>
+          <li class="usa-nav__primary-item">
+            <a href="https://www.cbp.gov/employee-resources" class="usa-nav__link"><span>Employee Resources</span></a>
+          </li>
+        </ul>
+        <div class="usa-nav__secondary">
+          <section aria-label="Search CBP.gov">
+            <form class="usa-search usa-search--small cbp-search" role="search"
+                  action="https://www.cbp.gov/search" method="get">
+              <label class="usa-sr-only" for="cbp-search-field">Search CBP.gov</label>
+              <input class="usa-input" id="cbp-search-field" type="search" name="query" placeholder="Search CBP.gov" />
+              <button class="usa-button" type="submit">
+                <img src="img/search--white.svg" class="usa-search__submit-icon" alt="Search" />
+              </button>
+            </form>
+          </section>
         </div>
       </div>
-    </div>
+    </nav>
   </header>
 
   <!-- Main content -->
@@ -193,7 +331,7 @@
         <div class="usa-footer__logo grid-row grid-gap-2">
           <div class="grid-col-auto">
             <img class="usa-footer__logo-img"
-                 src="https://upload.wikimedia.org/wikipedia/commons/0/08/Seal_of_U.S._Customs_and_Border_Protection.png"
+                 src="img/cbp-seal.png"
                  alt="" />
           </div>
           <div class="grid-col-auto">
@@ -211,11 +349,11 @@
         <div class="usa-identifier__logos">
           <a href="https://www.cbp.gov" class="usa-identifier__logo">
             <img class="usa-identifier__logo-img" role="img" alt="CBP seal"
-                 src="https://upload.wikimedia.org/wikipedia/commons/0/08/Seal_of_U.S._Customs_and_Border_Protection.png" />
+                 src="img/cbp-seal.png" />
           </a>
           <a href="https://www.dhs.gov" class="usa-identifier__logo">
             <img class="usa-identifier__logo-img" role="img" alt="DHS seal"
-                 src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Seal_of_the_United_States_Department_of_Homeland_Security.svg/120px-Seal_of_the_United_States_Department_of_Homeland_Security.svg.png" />
+                 src="img/dhs-seal.svg" />
           </a>
         </div>
         <section class="usa-identifier__identity" aria-label="Agency description">
