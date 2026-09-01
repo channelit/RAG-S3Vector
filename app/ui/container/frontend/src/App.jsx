@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import flagImg from '@uswds/uswds/img/us_flag_small.png'
 import dotGovImg from '@uswds/uswds/img/icon-dot-gov.svg'
 import httpsImg from '@uswds/uswds/img/icon-https.svg'
+import closeImg from '@uswds/uswds/img/usa-icons/close.svg'
+import searchImg from '@uswds/uswds/img/usa-icons-bg/search--white.svg'
+import cbpWordmark from './assets/cbp-wordmark-white.png'
+// Seals served locally (copied from cbp.gov theme assets) — no external image hosts.
+import CBP_SEAL from './assets/cbp-seal.png'
+import DHS_SEAL from './assets/dhs-seal.svg'
 
-const CBP_SEAL = 'https://upload.wikimedia.org/wikipedia/commons/0/08/Seal_of_U.S._Customs_and_Border_Protection.png'
-const DHS_SEAL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/Seal_of_the_United_States_Department_of_Homeland_Security.svg/120px-Seal_of_the_United_States_Department_of_Homeland_Security.svg.png'
 
 function GovBanner() {
   const [expanded, setExpanded] = useState(false)
@@ -64,6 +68,104 @@ function GovBanner() {
   )
 }
 
+// Primary sections of cbp.gov, mirrored from its live header.
+const CBP_NAV = [
+  { label: 'Travel', href: 'https://www.cbp.gov/travel' },
+  { label: 'Trade', href: 'https://www.cbp.gov/trade' },
+  { label: 'Border Security', href: 'https://www.cbp.gov/border-security' },
+  { label: 'Newsroom', href: 'https://www.cbp.gov/newsroom' },
+  { label: 'About CBP', href: 'https://www.cbp.gov/about' },
+  { label: 'Careers', href: 'https://careers.cbp.gov/s/' },
+  { label: 'Employee Resources', href: 'https://www.cbp.gov/employee-resources' },
+]
+
+/** cbp.gov-style extended header: dark bar, seal wordmark, site search, primary links.
+ *  USWDS JS is not loaded in this app, so the mobile menu toggle is handled here. */
+function SiteHeader() {
+  const [navOpen, setNavOpen] = useState(false)
+  const menuBtnRef = useRef(null)
+  const closeBtnRef = useRef(null)
+
+  const openNav = () => setNavOpen(true)
+  const closeNav = () => setNavOpen(false)
+
+  useEffect(() => {
+    if (navOpen) {
+      closeBtnRef.current?.focus()
+      const onKey = (e) => { if (e.key === 'Escape') closeNav() }
+      document.addEventListener('keydown', onKey)
+      return () => document.removeEventListener('keydown', onKey)
+    }
+    menuBtnRef.current?.focus({ preventScroll: true })
+  }, [navOpen])
+
+  return (
+    <>
+      <div className={`usa-overlay${navOpen ? ' is-visible' : ''}`} onClick={closeNav}></div>
+      <header className="usa-header usa-header--extended cbp-header">
+        <div className="usa-navbar">
+          <div className="usa-logo cbp-wordmark" id="extended-logo">
+            <a href="https://www.cbp.gov" className="cbp-wordmark__link">
+              <img
+                className="cbp-wordmark__img"
+                src={cbpWordmark}
+                alt="U.S. Customs and Border Protection, U.S. Department of Homeland Security. CBP.gov home"
+              />
+            </a>
+            <span className="cbp-wordmark__app">CSMS Intelligent Retrieval and Compliance Assistant</span>
+          </div>
+          <button
+            type="button"
+            className="usa-menu-btn"
+            ref={menuBtnRef}
+            aria-expanded={navOpen}
+            aria-controls="primary-nav"
+            onClick={openNav}
+          >
+            Menu
+          </button>
+        </div>
+        <nav aria-label="Primary navigation" className={`usa-nav${navOpen ? ' is-visible' : ''}`} id="primary-nav">
+          <div className="usa-nav__inner">
+            <button type="button" className="usa-nav__close" ref={closeBtnRef} onClick={closeNav}>
+              <img src={closeImg} role="img" alt="Close" />
+            </button>
+            <ul className="usa-nav__primary usa-accordion">
+              {CBP_NAV.map((item) => (
+                <li key={item.href} className="usa-nav__primary-item">
+                  <a href={item.href} className="usa-nav__link"><span>{item.label}</span></a>
+                </li>
+              ))}
+            </ul>
+            <div className="usa-nav__secondary">
+              <section aria-label="Search CBP.gov">
+                <form
+                  className="usa-search usa-search--small cbp-search"
+                  role="search"
+                  action="https://www.cbp.gov/search"
+                  method="get"
+                >
+                  <label className="usa-sr-only" htmlFor="cbp-search-field">Search CBP.gov</label>
+                  <input
+                    className="usa-input"
+                    id="cbp-search-field"
+                    type="search"
+                    name="query"
+                    placeholder="Search CBP.gov"
+                  />
+                  <button className="usa-button" type="submit">
+                    <img src={searchImg} className="usa-search__submit-icon" alt="Search" />
+                  </button>
+                </form>
+              </section>
+            </div>
+          </div>
+        </nav>
+      </header>
+    </>
+  )
+}
+
 function App() {
   const [query, setQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -114,28 +216,7 @@ function App() {
 
       <GovBanner />
 
-      <div className="usa-overlay"></div>
-
-      <header className="usa-header usa-header--basic" role="banner">
-        <div className="usa-nav-container">
-          <div className="usa-navbar">
-            <div className="usa-logo cbp-logo">
-              <img
-                src={CBP_SEAL}
-                alt="U.S. Customs and Border Protection seal"
-                className="cbp-logo__seal"
-              />
-              <div className="cbp-logo__text">
-                <span className="cbp-logo__agency">U.S. Customs and Border Protection</span>
-                <span className="cbp-logo__subagency">U.S. Department of Homeland Security</span>
-                <em className="usa-logo__text cbp-logo__app">
-                  CSMS Intelligent Retrieval and Compliance Assistant
-                </em>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      <SiteHeader />
 
       <main id="main-content" className="usa-section">
         <div className="grid-container">
@@ -233,9 +314,23 @@ function App() {
                 <div className="margin-top-3">
                   <h4 className="font-heading-xs text-base-dark margin-bottom-1">Sources</h4>
                   <ul className="usa-list usa-list--unstyled font-body-xs text-base">
-                    {sources.map((s) => (
-                      <li key={s} className="margin-bottom-05">{s}</li>
-                    ))}
+                    {sources.map((s, i) => {
+                      // Backend returns {label, url}; tolerate plain strings too.
+                      const label = typeof s === 'string' ? s : s.label
+                      const url = typeof s === 'string' ? null : s.url
+                      return (
+                        <li key={`${label}-${i}`} className="margin-bottom-05">
+                          {url ? (
+                            <a className="usa-link usa-link--external" href={url} target="_blank" rel="noopener noreferrer">
+                              {label}
+                              <span className="usa-sr-only"> (opens in a new tab)</span>
+                            </a>
+                          ) : (
+                            label
+                          )}
+                        </li>
+                      )
+                    })}
                   </ul>
                 </div>
               )}

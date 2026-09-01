@@ -1,40 +1,109 @@
-/* CBP header identity */
-.cbp-logo {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
+/* ---- cbp.gov-style dark header ------------------------------------- */
+:root {
+  --cbp-black: #000305;
 }
 
-.cbp-logo__seal {
-  height: 56px;
-  width: 56px;
-  object-fit: contain;
-  flex-shrink: 0;
+/* Government banner sits on the same dark ground as on cbp.gov */
+.usa-banner {
+  background-color: var(--cbp-black);
 }
-
-.cbp-logo__text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
+.usa-banner__header-text,
+.usa-banner__header-action,
+.usa-banner__button,
+.usa-banner__button-text {
+  color: #fff;
 }
-
-.cbp-logo__agency {
-  font-size: 1rem;
-  font-weight: 700;
+.usa-banner__header-action::after,
+.usa-banner__button::after,
+.usa-banner__button[aria-expanded="true"]::after {
+  background-color: #fff;
+}
+.usa-banner__button:hover .usa-banner__button-text,
+.usa-banner__button[aria-expanded="true"] .usa-banner__button-text {
+  color: #fff;
+}
+/* Expanded "how you know" panel keeps USWDS's light ground so its dark text stays readable */
+.usa-banner__content {
+  background-color: #f0f0f0;
   color: #1b1b1b;
 }
 
-.cbp-logo__subagency {
-  font-size: 0.8rem;
-  color: #565c65;
+.cbp-header.usa-header--extended {
+  background-color: var(--cbp-black);
+  border-bottom: 1px solid #dedfe0;
+}
+.cbp-header .usa-navbar {
+  border-bottom: none;
+}
+.cbp-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+/* USWDS caps the extended-header logo at 33% width; the wordmark must never
+   shrink below its natural 225x69 (the app name wraps instead). */
+.cbp-header .usa-logo {
+  max-width: none;
+  width: auto;
+}
+.cbp-wordmark__link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.cbp-wordmark__img {
+  height: 38px;
+  width: auto;
+  max-width: none;
+}
+.cbp-wordmark__app {
+  color: #fff;
+  font-size: 0.93rem;
+  line-height: 1.3;
+  min-width: 0;
+  max-width: 14rem;
+  padding-left: 1rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.45);
 }
 
-.cbp-logo__app {
-  font-size: 0.8rem;
-  font-style: italic;
-  color: #005ea2;
-  margin-top: 0.1rem;
+@media (min-width: 64em) {
+  .cbp-wordmark__img {
+    height: 69px;
+  }
+  .cbp-header .usa-logo {
+    max-width: calc(100% - 20rem); /* leave room for the search box on the right */
+  }
+  .cbp-header .usa-nav {
+    background-color: var(--cbp-black);
+    border-top: none;
+  }
+  .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link,
+  .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link:hover {
+    color: #fff;
+    font-weight: 700;
+  }
+  .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link:hover::after,
+  .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link.usa-current::after {
+    background-color: #fff;
+  }
+  /* Underlined, borderless search field as on cbp.gov */
+  .cbp-search .usa-input {
+    background-color: transparent;
+    color: #fff;
+    border: 0;
+    border-bottom: 1px solid #fff;
+    border-radius: 0;
+  }
+  .cbp-search .usa-input::placeholder {
+    color: #dfe1e2;
+  }
+  .cbp-search .usa-button {
+    background-color: transparent;
+  }
+  .cbp-search .usa-button:hover,
+  .cbp-search .usa-button:active {
+    background-color: #1b1b1b;
+  }
 }
 
 /* Seal in footer / identifier */
