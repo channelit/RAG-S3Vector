@@ -1,13 +1,13 @@
 """FastAPI backend for the container UI.
 
-Answers queries with a guardrailed Bedrock Converse tool loop over the S3
-Vectors store — no Knowledge Base, no extra data stores. The LLM decides per
-question which tools to call:
+Answers queries with a guardrailed Bedrock Converse tool loop. The LLM
+decides per question which tools to call:
 
-  search_messages  — semantic retrieval: embed the query with the Bedrock
-                     embedding model, query the S3 Vectors index (topK, with
-                     a native numeric pre-filter on document_timestamp), and
-                     return the matching passages.
+  search_messages  — semantic retrieval. With KNOWLEDGE_BASE_ID set, calls
+                     bedrock-agent-runtime `retrieve` on the (managed) Bedrock
+                     Knowledge Base; otherwise embeds the query and queries the
+                     S3 Vectors index (topK, with a native numeric pre-filter
+                     on document_timestamp). Returns the matching passages.
   count_messages   — exact aggregation: counts distinct documents in the
                      corpus from an in-memory manifest built by paging
                      s3vectors ListVectors and deduplicating chunks by their
@@ -21,9 +21,11 @@ ingestion Lambda on every refresh.
 
 Date filtering (the UI's date range must be authoritative): the range from
 the request clamps every tool call — the model can narrow it but never widen
-it. search_messages pre-filters inside the vector search on
-document_timestamp and strictly post-filters (undated chunks are excluded
-when a range is set); count_messages filters the manifest the same way.
+it. search_messages strictly post-filters by date (undated passages are
+excluded when a range is set) — the S3 Vectors path also pre-filters on
+document_timestamp, while the KB path over-fetches and resolves each hit's
+date from the manifest, since the managed KB ignores sidecar metadata;
+count_messages filters the manifest the same way.
 
 The guardrail (GUARDRAIL_ID/GUARDRAIL_VERSION) is applied on every converse
 call; if it intervenes the answer is replaced and no sources are returned.
@@ -33,6 +35,7 @@ import json
 import logging
 import os
 import re
+from urllib.parse import unquote, urlparse
 import threading
 import time
 from dataclasses import dataclass, field
@@ -70,8 +73,17 @@ MAX_TOOL_TURNS = int(os.environ.get("MAX_TOOL_TURNS", "8"))
 DOCUMENTS_BUCKET_NAME = os.environ.get("DOCUMENTS_BUCKET_NAME") or None
 SOURCE_URL_TTL_SECONDS = int(os.environ.get("SOURCE_URL_TTL_SECONDS", "3600"))
 
+# Optional Bedrock Knowledge Base for search_messages. When set, retrieval goes
+# through bedrock-agent-runtime `retrieve` instead of s3vectors query_vectors.
+# The KB is a *managed* KB (managedSearchConfiguration; RetrieveAndGenerate is
+# not supported for it) and it ignores .metadata.json sidecars, so date
+# filtering is applied here from the S3 Vectors manifest (same documents bucket).
+# Generation, the guardrail, and count_messages are unchanged either way.
+KNOWLEDGE_BASE_ID = os.environ.get("KNOWLEDGE_BASE_ID") or None
+
 bedrock_runtime = boto3.client("bedrock-runtime")
 s3vectors = boto3.client("s3vectors")
+bedrock_agent_runtime = boto3.client("bedrock-agent-runtime") if KNOWLEDGE_BASE_ID else None
 s3 = boto3.client("s3") if DOCUMENTS_BUCKET_NAME else None
 
 # Public CSMS bulletin URL: the numeric message ID rendered in lowercase hex
@@ -292,7 +304,8 @@ def _embed(text: str) -> list[float]:
     return json.loads(response["body"].read())["embeddings"][0]["embedding"]
 
 
-def _search_messages(query: str, from_num: int | None, to_num: int | None) -> dict:
+def _query_s3vectors(query: str, from_num: int | None, to_num: int | None) -> list[dict]:
+    """S3 Vectors retrieval with the numeric document_timestamp pre-filter."""
     embedding = _embed(query)
     kwargs = dict(
         vectorBucketName=VECTOR_BUCKET_NAME,
@@ -310,31 +323,78 @@ def _search_messages(query: str, from_num: int | None, to_num: int | None) -> di
     if conditions:
         kwargs["filter"] = conditions[0] if len(conditions) == 1 else {"$and": conditions}
 
-    hits = s3vectors.query_vectors(**kwargs).get("vectors", [])
+    hits = []
+    for hit in s3vectors.query_vectors(**kwargs).get("vectors", []):
+        meta = hit.get("metadata") or {}
+        hits.append({
+            "source": meta.get("source", hit.get("key", "unknown")),
+            "day": _metadata_day(meta),
+            "text": meta.get("text", ""),
+        })
+    return hits
+
+
+def _kb_source_key(uri: str) -> str:
+    """Documents-bucket key from a KB result URI
+    (https://<bucket>.s3.amazonaws.com/<key> or s3://<bucket>/<key>)."""
+    parsed = urlparse(uri)
+    path = parsed.path.lstrip("/")
+    if parsed.scheme == "s3":  # s3://bucket/key -> netloc is the bucket
+        return unquote(path)
+    return unquote(path)
+
+
+def _retrieve_kb(query: str, from_num: int | None, to_num: int | None) -> list[dict]:
+    """Bedrock Knowledge Base retrieval (managed KB). The KB has no usable date
+    metadata, so each hit's date is looked up in the corpus manifest by source
+    key; over-fetch when a range is set because filtering happens afterwards."""
+    ranged = from_num is not None or to_num is not None
+    number = min(SEARCH_TOP_K * 3 if ranged else SEARCH_TOP_K, 100)
+    resp = bedrock_agent_runtime.retrieve(
+        knowledgeBaseId=KNOWLEDGE_BASE_ID,
+        retrievalQuery={"text": query},
+        retrievalConfiguration={"managedSearchConfiguration": {"numberOfResults": number}},
+    )
+    days = {d.source: d.day for d in _get_manifest().documents}
+    hits = []
+    for r in resp.get("retrievalResults", []):
+        meta = r.get("metadata") or {}
+        uri = ((r.get("location") or {}).get("s3Location") or {}).get("uri") or meta.get("_source_uri", "")
+        source = _kb_source_key(uri) if uri else meta.get("_document_title", "unknown")
+        hits.append({
+            "source": source,
+            "day": days.get(source),
+            "text": (r.get("content") or {}).get("text", ""),
+        })
+    return hits
+
+
+def _search_messages(query: str, from_num: int | None, to_num: int | None) -> dict:
+    if KNOWLEDGE_BASE_ID:
+        backend, hits = "kb", _retrieve_kb(query, from_num, to_num)
+    else:
+        backend, hits = "s3vectors", _query_s3vectors(query, from_num, to_num)
 
     results = []
     excluded_undated = 0
     for hit in hits:
-        meta = hit.get("metadata") or {}
-        day = _metadata_day(meta)
+        day = hit["day"]
         if from_num is not None or to_num is not None:
             # Strict enforcement: with a range set, undated or out-of-range
-            # chunks are never shown (older vectors may lack the numeric field
-            # the pre-filter uses).
+            # passages are never shown (the KB cannot pre-filter by date, and
+            # older vectors may lack the numeric field the pre-filter uses).
             if day is None:
                 excluded_undated += 1
                 continue
             if (from_num is not None and day < from_num) or (to_num is not None and day > to_num):
                 continue
-        results.append({
-            "source": meta.get("source", hit.get("key", "unknown")),
-            "date": _day_str(day),
-            "text": meta.get("text", ""),
-        })
+        results.append({"source": hit["source"], "date": _day_str(day), "text": hit["text"]})
+        if len(results) >= SEARCH_TOP_K:
+            break
 
     logger.info(
-        "search_messages(%r, %s..%s): %d hit(s), kept %d (%d undated excluded)",
-        query, _day_str(from_num), _day_str(to_num), len(hits), len(results), excluded_undated,
+        "search_messages[%s](%r, %s..%s): %d hit(s), kept %d (%d undated excluded)",
+        backend, query, _day_str(from_num), _day_str(to_num), len(hits), len(results), excluded_undated,
     )
     payload: dict = {"results": results}
     if not results:
@@ -504,6 +564,15 @@ def _execute_tool(
     raise ToolInputError(f"unknown tool: {name}")
 
 
+_THINKING_RE = re.compile(r"<thinking>.*?</thinking>\s*", re.DOTALL)
+
+
+def _strip_thinking(text: str) -> str:
+    """Nova models sometimes emit their scratchpad as <thinking>…</thinking>
+    ahead of the answer; never show that to the user."""
+    return _THINKING_RE.sub("", text).strip()
+
+
 def _answer_query(
     query: str, ui_from: int | None, ui_to: int | None
 ) -> tuple[str, list[dict], bool]:
@@ -547,7 +616,7 @@ def _answer_query(
 
         if stop_reason != "tool_use":
             logger.info("Tool loop done after %d turn(s), stopReason=%s", turn + 1, stop_reason)
-            return answer, sources, False
+            return _strip_thinking(answer), sources, False
 
         messages.append(output_message)
         tool_results = []
