@@ -55,8 +55,13 @@ class RagStack(Stack):
         # fargate_resources = create_fargate_resources(
         #     self,
         #     config,
-        #     query_fn_name=lambda_functions["query_fn"].function_name,
-        #     query_fn_arn=lambda_functions["query_fn"].function_arn,
+        #     container_env={  # what backend/main.py reads; see app/ui/container/.env.local.example
+        #         "VECTOR_BUCKET_NAME": vector_bucket_name,
+        #         "VECTOR_INDEX_NAME": vector_index_name,
+        #         "EMBEDDING_MODEL_ID": config["bedrock"]["embedding_model_id"],
+        #         "GUARDRAIL_ID": guardrail.attr_guardrail_id,
+        #         "GUARDRAIL_VERSION": guardrail_version.attr_version,
+        #     },
         # )
 
         cdk.CfnOutput(self, "DocumentBucketName", value=document_bucket.bucket_name)

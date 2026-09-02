@@ -13,9 +13,17 @@ from config import resource_name
 def create_fargate_resources(
     scope: Construct,
     config: dict,
-    query_fn_name: str,
-    query_fn_arn: str,
+    container_env: dict[str, str],
 ) -> dict:
+    """ECS Fargate + ALB for the container UI (currently disabled in rag_stack.py).
+
+    `container_env` must carry what backend/main.py reads — the same keys as
+    app/ui/container/.env.local.example (VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME,
+    EMBEDDING_MODEL_ID, BEDROCK_MODEL_ID, GUARDRAIL_ID, GUARDRAIL_VERSION,
+    optional KNOWLEDGE_BASE_ID / DOCUMENTS_BUCKET_NAME). The backend talks to
+    Bedrock, S3 Vectors and S3 directly (it no longer invokes the query
+    Lambda), so the task role needs those permissions before this is enabled.
+    """
     project_name = config["project_name"]
     fargate_cfg = config.get("fargate", {})
     cpu = fargate_cfg.get("cpu", 256)
@@ -52,17 +60,12 @@ def create_fargate_resources(
         directory="../app/ui/container",
     )
 
-    # Task role: only permission needed is invoking the query Lambda
+    # Task role: grant bedrock / s3vectors / s3 access here before enabling
+    # (see resource_iam.py for the equivalent Lambda role statements).
     task_role = iam.Role(
         scope,
         "FargateTaskRole",
         assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-    )
-    task_role.add_to_policy(
-        iam.PolicyStatement(
-            actions=["lambda:InvokeFunction"],
-            resources=[query_fn_arn],
-        )
     )
 
     service = ecs_patterns.ApplicationLoadBalancedFargateService(
@@ -80,7 +83,7 @@ def create_fargate_resources(
             image=ecs.ContainerImage.from_docker_image_asset(image_asset),
             container_port=container_port,
             task_role=task_role,
-            environment={"QUERY_LAMBDA_NAME": query_fn_name},
+            environment=container_env,
         ),
     )
 

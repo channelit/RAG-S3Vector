@@ -4,8 +4,8 @@ Answers queries with a guardrailed Bedrock Converse tool loop. The LLM
 decides per question which tools to call:
 
   search_messages  — semantic retrieval. With KNOWLEDGE_BASE_ID set, calls
-                     bedrock-agent-runtime `retrieve` on the (managed) Bedrock
-                     Knowledge Base; otherwise embeds the query and queries the
+                     bedrock-agent-runtime `retrieve` on the managed Bedrock
+                     Knowledge Base (guardrail applied to the passages); otherwise embeds the query and queries the
                      S3 Vectors index (topK, with a native numeric pre-filter
                      on document_timestamp). Returns the matching passages.
   count_messages   — exact aggregation: counts distinct documents in the
@@ -73,12 +73,12 @@ MAX_TOOL_TURNS = int(os.environ.get("MAX_TOOL_TURNS", "8"))
 DOCUMENTS_BUCKET_NAME = os.environ.get("DOCUMENTS_BUCKET_NAME") or None
 SOURCE_URL_TTL_SECONDS = int(os.environ.get("SOURCE_URL_TTL_SECONDS", "3600"))
 
-# Optional Bedrock Knowledge Base for search_messages. When set, retrieval goes
-# through bedrock-agent-runtime `retrieve` instead of s3vectors query_vectors.
-# The KB is a *managed* KB (managedSearchConfiguration; RetrieveAndGenerate is
-# not supported for it) and it ignores .metadata.json sidecars, so date
-# filtering is applied here from the S3 Vectors manifest (same documents bucket).
-# Generation, the guardrail, and count_messages are unchanged either way.
+# Optional (managed) Bedrock Knowledge Base for search_messages. When set,
+# retrieval goes through bedrock-agent-runtime `retrieve` (with the guardrail
+# applied to the retrieved passages) instead of s3vectors query_vectors. The
+# managed KB ignores .metadata.json sidecars, so date filtering is applied
+# here from the S3 Vectors manifest (same documents bucket). Generation, the
+# guardrail on converse(), and count_messages are unchanged either way.
 KNOWLEDGE_BASE_ID = os.environ.get("KNOWLEDGE_BASE_ID") or None
 
 bedrock_runtime = boto3.client("bedrock-runtime")
@@ -350,11 +350,16 @@ def _retrieve_kb(query: str, from_num: int | None, to_num: int | None) -> list[d
     key; over-fetch when a range is set because filtering happens afterwards."""
     ranged = from_num is not None or to_num is not None
     number = min(SEARCH_TOP_K * 3 if ranged else SEARCH_TOP_K, 100)
-    resp = bedrock_agent_runtime.retrieve(
-        knowledgeBaseId=KNOWLEDGE_BASE_ID,
-        retrievalQuery={"text": query},
-        retrievalConfiguration={"managedSearchConfiguration": {"numberOfResults": number}},
-    )
+    kwargs: dict = {
+        "knowledgeBaseId": KNOWLEDGE_BASE_ID,
+        "retrievalQuery": {"text": query},
+        "retrievalConfiguration": {"managedSearchConfiguration": {"numberOfResults": number}},
+    }
+    if GUARDRAIL_ID:  # guardrail also screens the retrieved passages
+        kwargs["guardrailConfiguration"] = {"guardrailId": GUARDRAIL_ID, "guardrailVersion": GUARDRAIL_VERSION}
+    resp = bedrock_agent_runtime.retrieve(**kwargs)
+    if resp.get("guardrailConfiguration"):
+        logger.info("KB retrieve guardrail action: %s", resp["guardrailConfiguration"].get("action"))
     days = {d.source: d.day for d in _get_manifest().documents}
     hits = []
     for r in resp.get("retrievalResults", []):

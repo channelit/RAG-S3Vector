@@ -23,10 +23,14 @@ def create_lambda_functions(
     runtime = getattr(lambda_.Runtime, lambda_cfg["runtime"])
     handler = lambda_cfg["handler"]
 
-    shared_env = {
+    # Each function gets only the variables its handler reads.
+    ingestion_env = {
         "VECTOR_BUCKET_NAME": vector_bucket_name,
         "VECTOR_INDEX_NAME": vector_index_name,
         "EMBEDDING_MODEL_ID": embedding_model_id,
+    }
+    query_env = {
+        **ingestion_env,
         "LLM_MODEL_ID": llm_model_id,
         "GUARDRAIL_ID": guardrail_id,
         "GUARDRAIL_VERSION": guardrail_version,
@@ -52,7 +56,7 @@ def create_lambda_functions(
         role=lambda_role,
         timeout=Duration.minutes(ingestion_cfg["timeout_minutes"]),
         memory_size=ingestion_cfg["memory_size"],
-        environment=shared_env,
+        environment=ingestion_env,
     )
 
     document_bucket.add_event_notification(
@@ -70,7 +74,7 @@ def create_lambda_functions(
         role=lambda_role,
         timeout=Duration.minutes(query_cfg["timeout_minutes"]),
         memory_size=query_cfg["memory_size"],
-        environment=shared_env,
+        environment=query_env,
     )
 
     return {"ingestion_fn": ingestion_fn, "query_fn": query_fn}
