@@ -130,6 +130,7 @@ python -m scraper serve --port 8080          # or: docker compose run --rm -p 80
 | `GET /health` | liveness/readiness probe |
 | `GET /status` | state of the current/last run (`idle` / `running` / `succeeded` / `failed`) |
 | `POST /scrape` | trigger a run; returns `202` + `run_id`, or `409` if a run is already in progress |
+| `POST /reindex` | rewrite the KB vectors of documents already in S3 (see [Re-indexing](#re-indexing-the-knowledge-base)); same `202`/`409` semantics |
 
 `POST /scrape` bodies mirror the CLI — `mode` is `current` / `archive` / `message`, everything else is optional:
 
@@ -139,9 +140,38 @@ python -m scraper serve --port 8080          # or: docker compose run --rm -p 80
 {"mode": "archive", "sources": ["2021-2025"], "limit": 200}
 {"mode": "archive", "discover": true}
 {"mode": "message", "targets": ["69302472"], "dry_run": true}
+{"mode": "message", "targets": ["69302472"], "force": true, "reindex": true}
+```
+
+`POST /reindex` bodies (all fields optional):
+
+```json
+{}                                        every document under S3_PREFIX
+{"targets": ["69302472", "69298180"]}     only these messages
+{"limit": 10, "dry_run": true}            list documents + sidecar dates, touch nothing
 ```
 
 Runs execute one at a time in a background thread (the pipeline is deliberately sequential); poll `GET /status` for completion. Invalid arguments are rejected with `400` before a run starts.
+
+### Re-indexing the Knowledge Base
+
+Use this when documents were indexed before their sidecars carried dates (or before the KB honoured sidecar metadata): a date-range query can never match those vectors. Re-indexing needs `KNOWLEDGE_BASE_ID` and `KB_DATA_SOURCE_ID` (IDs, not names) and calls the Bedrock direct-document APIs (`DeleteKnowledgeBaseDocuments`, `IngestKnowledgeBaseDocuments`, `GetKnowledgeBaseDocuments`; the caller needs those `bedrock:` permissions):
+
+1. **Delete** the document's current vectors from the KB.
+2. **Re-ingest** the same S3 object with its `.metadata.json` sidecar attached as the document metadata, so the new vectors carry `date_numeric` / `sent_date` / `message_id` / ….
+
+Batches of 10 (the API limit); each batch is polled until it settles. Documents whose sidecar has **no** `date_numeric` are reported and skipped — re-indexing can't invent a date, re-scrape them with `--force --reindex`.
+
+```bash
+python -m scraper reindex --dry-run              # list documents + their sidecar dates
+python -m scraper reindex --limit 10             # trial on the first 10 documents
+python -m scraper reindex                        # everything under S3_PREFIX
+python -m scraper reindex 69302472 69298180      # specific messages
+python -m scraper message 69302472 --force --reindex     # re-scrape (fresh sidecar) + re-index
+python -m scraper all --since 2026-01-01 --force --reindex   # rewrite a whole date range
+```
+
+`reindex` mode does **not** contact CBP — it only lists S3, reads each sidecar for its date, and talks to Bedrock. `--reindex` on a scrape mode re-indexes each message right after its files are uploaded, so a `--force --reindex` run rewrites both the S3 objects and their vectors in one pass.
 
 ### Useful flags
 
@@ -151,6 +181,7 @@ Runs execute one at a time in a background thread (the pipeline is deliberately 
 | `--since / --until YYYY-MM-DD` | date-range filter on sent date; out-of-range messages with a known date (feed `pub_date` or an archive PDF's Sent column) are skipped **without** fetching, and whole archive PDFs whose filename years can't intersect the range are skipped in `all` mode |
 | `--no-discover` (`all`) | use the built-in archive presets instead of scraping the landing page |
 | `--force` | re-process messages already in S3 |
+| `--reindex` | after uploading each message, delete + re-ingest its documents in the Bedrock KB |
 | `--dry-run -o DIR` | no AWS; write and keep files locally |
 | `--list` (archive) | print discovered message refs without processing |
 | `--delay SECONDS` | politeness delay between HTTP requests (default 0.7) |
@@ -159,7 +190,7 @@ Runs execute one at a time in a background thread (the pipeline is deliberately 
 
 - Point the KB **S3 data source** at the bucket with inclusion prefix `csms/`; sidecars are picked up automatically by the `<name>.metadata.json` convention (each must stay <10 KB — enforced by the app).
 - **Do not** upload into the existing `cits-rag-s3vector-documents-*` bucket: its `ObjectCreated` notification feeds the S3 Vectors ingestion Lambda, which would try to ingest every sidecar too.
-- After a scraper run, start a KB **sync/ingestion job** to index the new objects.
+- After a scraper run, start a KB **sync/ingestion job** to index the new objects — or run with `--reindex` / `POST /reindex` to push each document (with its sidecar metadata) through the direct-ingestion API instead.
 
 ## Politeness / operational notes
 

@@ -4,6 +4,7 @@
     python -m scraper current  [--limit N]
     python -m scraper archive  [SOURCE ...] [--discover] [--list] [--limit N]
     python -m scraper message  ID_OR_URL [ID_OR_URL ...]
+    python -m scraper reindex  [MESSAGE_ID ...] [--limit N] [--dry-run]
     python -m scraper serve    [--host 0.0.0.0] [--port 8080]
 
 `all` is the one-command mode: it unions the live feeds with every archive PDF
@@ -12,7 +13,12 @@ presets if discovery fails) and processes everything in the requested date
 range. SOURCE is a preset name (2011-2015, 2016-2020, 2021-2025,
 latest-month), an archive-PDF URL, or a local PDF path. Common flags:
 --dry-run, --output-dir, --force, --since/--until YYYY-MM-DD, --bucket,
---prefix.
+--prefix, --reindex.
+
+`reindex` rewrites the Bedrock Knowledge Base vectors for documents already
+in S3 (delete + re-ingest with the .metadata.json sidecar attached), without
+re-scraping; `--reindex` on the scrape modes does the same for each message
+right after it is uploaded. Both need KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID.
 """
 
 import argparse
@@ -64,6 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--prefix", default=None, help="override S3_PREFIX (default csms/)")
         p.add_argument("--delay", type=float, default=None,
                        help="override REQUEST_DELAY_SECONDS between HTTP requests")
+        p.add_argument("--reindex", action="store_true",
+                       help="after uploading each message, delete + re-ingest its documents in "
+                            "the Bedrock KB (needs KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID)")
 
     p_all = sub.add_parser(
         "all",
@@ -94,7 +103,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_message.add_argument("targets", nargs="+", help="numeric CSMS ID or bulletin URL")
     common(p_message)
 
-    p_serve = sub.add_parser("serve", help="run as an HTTP service (POST /scrape, GET /health)")
+    p_reindex = sub.add_parser(
+        "reindex",
+        help="rewrite KB vectors for documents already in S3: delete + re-ingest each with its sidecar",
+    )
+    p_reindex.add_argument("targets", nargs="*", metavar="MESSAGE_ID",
+                           help="restrict to these CSMS message IDs (default: everything under the prefix)")
+    p_reindex.add_argument("--limit", type=int, default=None,
+                           help="re-index at most this many documents")
+    p_reindex.add_argument("--dry-run", action="store_true",
+                           help="list the documents and their sidecar dates without touching the KB")
+    p_reindex.add_argument("--bucket", default=None, help="override S3_BUCKET_NAME")
+    p_reindex.add_argument("--prefix", default=None, help="override S3_PREFIX (default csms/)")
+
+    p_serve = sub.add_parser("serve", help="run as an HTTP service (POST /scrape, POST /reindex, GET /health)")
     p_serve.add_argument("--host", default="0.0.0.0")
     p_serve.add_argument("--port", type=int, default=8080)
 
@@ -198,8 +220,11 @@ def main(argv: list[str] | None = None) -> int:
         settings.s3_bucket = args.bucket
     if args.prefix is not None:
         settings.s3_prefix = args.prefix if args.prefix.endswith("/") or not args.prefix else args.prefix + "/"
-    if args.delay is not None:
+    if getattr(args, "delay", None) is not None:
         settings.request_delay = args.delay
+
+    if args.mode == "reindex":
+        return run_reindex(args, settings)
 
     if args.mode == "all" and not args.since and args.limit is None:
         logger.warning(
@@ -217,9 +242,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     uploader = None
+    indexer = None
     if not args.dry_run:
         from .uploader import S3Uploader
         uploader = S3Uploader(settings)
+        if args.reindex:
+            from .kb_index import KBIndexer
+            indexer = KBIndexer(settings)
+    elif args.reindex:
+        logger.warning("--reindex is ignored with --dry-run (nothing is uploaded)")
 
     pipeline = Pipeline(
         settings=settings,
@@ -229,10 +260,35 @@ def main(argv: list[str] | None = None) -> int:
         force=args.force,
         since=args.since,
         until=args.until,
+        indexer=indexer,
     )
     stats = pipeline.run(refs, limit=args.limit)
     print(f"\nDone: {stats.summary()}")
     return 1 if (stats.failed and not stats.uploaded) else 0
+
+
+def run_reindex(args, settings: Settings) -> int:
+    """`reindex` mode: delete + re-ingest documents already in S3."""
+    from .kb_index import KBIndexer
+
+    indexer = KBIndexer(settings)
+    docs, no_sidecar = indexer.discover(message_ids=args.targets or None, limit=args.limit)
+    for key in no_sidecar:
+        logger.warning("No sidecar for s3://%s/%s — not re-indexable, re-scrape with --force", settings.s3_bucket, key)
+    if args.dry_run:
+        for doc in docs:
+            print(f"{doc.uri}  date_numeric={doc.date_numeric if doc.date_numeric is not None else 'UNDATED'}")
+        undated = sum(1 for d in docs if d.date_numeric is None)
+        print(f"\n[dry-run] {len(docs)} document(s) would be re-indexed ({undated} undated would be skipped)")
+        return 0
+    if not docs:
+        print("Nothing to re-index.")
+        return 0
+    stats = indexer.reindex(docs)
+    if stats.undated_docs:
+        logger.warning("Undated (skipped): %s", ", ".join(stats.undated_docs[:20]))
+    print(f"\nDone: {stats.summary()}")
+    return 1 if (stats.failed and not stats.reindexed) else 0
 
 
 if __name__ == "__main__":

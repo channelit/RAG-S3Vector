@@ -10,6 +10,12 @@ Endpoints:
                    {"mode": "current", "limit": 5}
                    {"mode": "archive", "sources": ["2021-2025"], "limit": 200}
                    {"mode": "message", "targets": ["69302472"], "dry_run": true}
+                   {"mode": "message", "targets": ["69302472"], "force": true, "reindex": true}
+    POST /reindex  rewrite KB vectors for documents already in S3 (delete +
+                   re-ingest each with its .metadata.json sidecar), no scraping:
+                   {}                                   every document under the prefix
+                   {"targets": ["69302472"]}            just these messages
+                   {"limit": 10, "dry_run": true}       list what would be re-indexed
 
 Runs execute in a background thread; /scrape answers 202 immediately and 409
 while a run is already in progress (one run at a time — the pipeline is
@@ -47,6 +53,7 @@ class ScrapeRequest(BaseModel):
     bucket: Optional[str] = None
     prefix: Optional[str] = None
     delay: Optional[float] = None
+    reindex: bool = False            # delete + re-ingest each message in the KB after upload
 
     def to_argv(self) -> list[str]:
         if self.mode not in ("all", "current", "archive", "message"):
@@ -80,6 +87,28 @@ class ScrapeRequest(BaseModel):
             argv += ["--prefix", self.prefix]
         if self.delay is not None:
             argv += ["--delay", str(self.delay)]
+        if self.reindex:
+            argv.append("--reindex")
+        return argv
+
+
+class ReindexRequest(BaseModel):
+    targets: list[str] = []          # CSMS message IDs; empty => everything under the prefix
+    limit: Optional[int] = None
+    dry_run: bool = False
+    bucket: Optional[str] = None
+    prefix: Optional[str] = None
+
+    def to_argv(self) -> list[str]:
+        argv = ["reindex", *self.targets]
+        if self.limit is not None:
+            argv += ["--limit", str(self.limit)]
+        if self.dry_run:
+            argv.append("--dry-run")
+        if self.bucket:
+            argv += ["--bucket", self.bucket]
+        if self.prefix is not None:
+            argv += ["--prefix", self.prefix]
         return argv
 
 
@@ -125,7 +154,15 @@ def scrape(req: ScrapeRequest):
         argv = req.to_argv()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    return _start_run(argv)
 
+
+@app.post("/reindex", status_code=202)
+def reindex(req: ReindexRequest):
+    return _start_run(req.to_argv())
+
+
+def _start_run(argv: list[str]) -> dict:
     # Validate flag values (dates, numbers) up front so bad requests get a 400
     # instead of a run that immediately dies in the background thread.
     from .__main__ import build_parser

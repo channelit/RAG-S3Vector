@@ -3,26 +3,23 @@
 Queries a Bedrock Knowledge Base in two steps — bedrock-agent-runtime
 retrieve() for chunks, then bedrock-runtime converse() to write the answer.
 
-Date filtering strategy (the UI's date range must be authoritative):
-  1. Pre-filter: a `date_numeric` (YYYYMMDD int, from the scraper's
-     .metadata.json sidecars) metadata filter is passed to retrieve(). KBs
-     that index sidecar attributes into their vector store (e.g. an
-     S3 Vectors-backed KB) enforce the range inside the vector search.
-  2. Post-filter: results are re-checked against the range using whatever
-     date metadata they carry. Results outside the range — or carrying no
-     date metadata at all (managed KBs don't ingest sidecars) — are dropped,
-     so a chunk can never be cited outside the requested dates.
+Date filtering: the UI's date range is turned into a `date_numeric`
+(YYYYMMDD int) metadata filter on retrieve(). That attribute comes solely
+from the scraper's .metadata.json sidecars, which the KB indexes into its
+vector store, so the range is enforced inside the vector search. There is
+no post-filtering and no other date source (no S3 object tags, no
+ingestion-Lambda fields).
 """
 
 import logging
 import os
 import re
 from urllib.parse import unquote, urlparse
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import boto3
-from botocore.exceptions import BotoCoreError, ClientError, ParamValidationError
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,9 +37,6 @@ GEN_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-
 GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID") or None
 GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
 NUM_RESULTS = int(os.environ.get("KB_NUM_RESULTS", "8"))
-# When the KB can't enforce the date filter natively, fetch deeper so the
-# post-filter has enough candidates left after dropping out-of-range chunks.
-UNFILTERED_NUM_RESULTS = max(NUM_RESULTS, 25)
 # Lifetime of presigned S3 links returned for sources that have no public URL.
 SOURCE_URL_TTL_SECONDS = int(os.environ.get("SOURCE_URL_TTL_SECONDS", "3600"))
 
@@ -94,123 +88,18 @@ def _build_filter(from_num: int | None, to_num: int | None) -> dict | None:
     return conditions[0] if len(conditions) == 1 else {"andAll": conditions}
 
 
-# Retrieval strategy that succeeded last ("vector" | "managed" | "bare"),
-# cached so every request doesn't re-pay the failed probe calls.
-_working_strategy: str | None = None
-_STRATEGY_ORDER = ("vector", "managed", "bare")
-
-
-def _retrieve(query: str, retrieval_filter: dict | None) -> tuple[list[dict], bool]:
-    """Query the KB, degrading gracefully across KB types.
-
-    Attempts, in order: vectorSearchConfiguration with the metadata filter
-    (classic KBs — incl. S3 Vectors-backed ones — enforce the date range
-    inside the vector search), vectorSearchConfiguration without the filter,
-    managedSearchConfiguration (managed KBs reject vectorSearch; the param
-    only exists in newer botocore, so ParamValidationError is tolerated),
-    then a bare retrieve with no retrievalConfiguration at all.
-
-    Returns (results, filter_enforced) so the caller knows whether the date
-    range was already applied in-store.
-    """
-    global _working_strategy
-
-    attempts: list[tuple[str, dict | None, bool]] = []
+def _retrieve(query: str, retrieval_filter: dict | None) -> list[dict]:
+    """Vector search over the KB. The `date_numeric` filter (when set) is
+    applied by the vector store itself, so every result is inside the range."""
+    config: dict = {"numberOfResults": NUM_RESULTS}
     if retrieval_filter:
-        attempts.append((
-            "vector",
-            {"vectorSearchConfiguration": {"numberOfResults": NUM_RESULTS, "filter": retrieval_filter}},
-            True,
-        ))
-        attempts.append(
-            ("vector", {"vectorSearchConfiguration": {"numberOfResults": UNFILTERED_NUM_RESULTS}}, False)
-        )
-    else:
-        attempts.append(("vector", {"vectorSearchConfiguration": {"numberOfResults": NUM_RESULTS}}, False))
-    attempts.append(("managed", {"managedSearchConfiguration": {"numberOfResults": NUM_RESULTS}}, False))
-    attempts.append(("bare", None, False))
-
-    # Skip strategies already known to fail for this KB.
-    if _working_strategy in _STRATEGY_ORDER:
-        floor = _STRATEGY_ORDER.index(_working_strategy)
-        attempts = [a for a in attempts if _STRATEGY_ORDER.index(a[0]) >= floor]
-
-    last_exc: Exception | None = None
-    for strategy, config, filter_enforced in attempts:
-        kwargs: dict = {
-            "knowledgeBaseId": KNOWLEDGE_BASE_ID,
-            "retrievalQuery": {"text": query},
-        }
-        if config is not None:
-            kwargs["retrievalConfiguration"] = config
-        try:
-            response = bedrock_agent.retrieve(**kwargs)
-        except ParamValidationError as exc:
-            # This botocore doesn't model the parameter (e.g. managedSearchConfiguration)
-            logger.warning("KB retrieve config not supported by this SDK (%s): %s", strategy, exc)
-            last_exc = exc
-            continue
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] != "ValidationException":
-                raise
-            logger.warning("KB retrieve rejected %s config: %s", strategy, exc)
-            last_exc = exc
-            continue
-        _working_strategy = strategy
-        if retrieval_filter and not filter_enforced:
-            logger.warning(
-                "KB did not enforce the date filter natively — post-filter will drop out-of-range results"
-            )
-        return response.get("retrievalResults", []), filter_enforced
-
-    _working_strategy = None
-    raise last_exc
-
-
-def _result_date_numeric(result: dict) -> int | None:
-    """Best-effort YYYYMMDD for a result, from any date attribute either
-    ingestion pipeline writes (scraper sidecars or the S3 Vectors Lambda)."""
-    meta = result.get("metadata") or {}
-    value = meta.get("date_numeric")
-    if value is not None:
-        try:
-            return int(float(value))
-        except (TypeError, ValueError):
-            pass
-    for key in ("sent_date", "document_date"):
-        raw = meta.get(key)
-        if isinstance(raw, str) and len(raw) >= 10:
-            try:
-                return int(raw[:10].replace("-", ""))
-            except ValueError:
-                pass
-    for key in ("timestamp", "document_timestamp"):
-        raw = meta.get(key)
-        if raw is not None:
-            try:
-                return int(datetime.fromtimestamp(int(float(raw)), tz=timezone.utc).strftime("%Y%m%d"))
-            except (TypeError, ValueError, OSError, OverflowError):
-                pass
-    return None
-
-
-def _apply_date_range(
-    results: list[dict], from_num: int | None, to_num: int | None
-) -> tuple[list[dict], int, int]:
-    """Keep only results provably inside the range. Results with no date
-    metadata can't be verified, so they are excluded rather than shown."""
-    kept: list[dict] = []
-    out_of_range = 0
-    undated = 0
-    for result in results:
-        day = _result_date_numeric(result)
-        if day is None:
-            undated += 1
-        elif (from_num is not None and day < from_num) or (to_num is not None and day > to_num):
-            out_of_range += 1
-        else:
-            kept.append(result)
-    return kept, out_of_range, undated
+        config["filter"] = retrieval_filter
+    response = bedrock_agent.retrieve(
+        knowledgeBaseId=KNOWLEDGE_BASE_ID,
+        retrievalQuery={"text": query},
+        retrievalConfiguration={"vectorSearchConfiguration": config},
+    )
+    return response.get("retrievalResults", [])
 
 
 _S3_HOST_RE = re.compile(r"^([^.]+)\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$")
@@ -251,17 +140,16 @@ def _s3_uri_url(uri: str) -> str | None:
 
 
 def _source_info(result: dict) -> tuple[str, str | None]:
-    """(label, url) for a retrieved chunk. Prefers the scraper's sidecar
-    attributes (message_id/subject/source_url); managed KBs don't ingest those,
-    so it falls back to the KB's own _document_title / _source_uri."""
+    """(label, url) for a retrieved chunk. Uses the scraper's sidecar
+    attributes (message_id/subject/source_url/sent_date); objects without a
+    sidecar (e.g. standalone PDFs) get the KB's own _document_title / _source_uri."""
     meta = result.get("metadata", {})
     url = meta.get("source_url") or meta.get("parent_source_url")
     subject = meta.get("subject") or meta.get("parent_subject")
     message_id = meta.get("message_id")
     sent = meta.get("sent_date")
     if not isinstance(sent, str):
-        day = _result_date_numeric(result)
-        sent = f"{day // 10000:04d}-{day // 100 % 100:02d}-{day % 100:02d}" if day else None
+        sent = None
     if url and message_id and subject:
         head = f"CSMS #{message_id} ({sent})" if sent else f"CSMS #{message_id}"
         return f"{head}: {subject}", url
@@ -271,8 +159,7 @@ def _source_info(result: dict) -> tuple[str, str | None]:
         or url
         or "unknown source"
     )
-    # Managed KBs only expose the filename as _document_title; a CSMS key
-    # yields a more useful "CSMS #<id>" label.
+    # Without sidecar attributes a CSMS key still yields a useful "CSMS #<id>" label.
     located = _s3_bucket_key(uri)
     m = _CSMS_KEY_RE.search(located[1]) if located else None
     if m:
@@ -338,27 +225,18 @@ def query(req: QueryRequest):
     if from_num is not None and to_num is not None and from_num > to_num:
         raise HTTPException(status_code=400, detail="date_from must not be after date_to")
 
+    date_filtered = from_num is not None or to_num is not None
     try:
-        results, filter_enforced = _retrieve(req.query, _build_filter(from_num, to_num))
-
-        if from_num is not None or to_num is not None:
-            results, out_of_range, undated = _apply_date_range(results, from_num, to_num)
-            logger.info(
-                "Date range %s..%s (pre-filter %s): kept %d, dropped %d out-of-range, %d undated",
-                req.date_from, req.date_to, "enforced" if filter_enforced else "not enforced",
-                len(results), out_of_range, undated,
-            )
-            if not results:
-                answer = "No documents found in the selected date range."
-                if undated:
-                    answer += (
-                        f" ({undated} retrieved result(s) carried no date metadata and were excluded — "
-                        "the knowledge base may not be indexing the .metadata.json sidecar attributes.)"
-                    )
-                return {"answer": answer, "sources": []}
-
+        results = _retrieve(req.query, _build_filter(from_num, to_num))
+        if date_filtered:
+            logger.info("Date range %s..%s: %d result(s)", req.date_from, req.date_to, len(results))
         if not results:
-            return {"answer": "No matching documents were found in the knowledge base.", "sources": []}
+            answer = (
+                "No documents found in the selected date range."
+                if date_filtered
+                else "No matching documents were found in the knowledge base."
+            )
+            return {"answer": answer, "sources": []}
         answer, guardrail_intervened = _generate_answer(req.query, results)
     except (ClientError, BotoCoreError) as exc:
         logger.error("Knowledge Base query failed: %s", exc)

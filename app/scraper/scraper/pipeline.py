@@ -20,6 +20,7 @@ from .bulletin import Bulletin, fetch_bulletin, parse_date_hint
 from .config import Settings
 from .countries import detect_countries
 from .csms import MessageRef, bulletin_url_for_id, canonical_bulletin_url, id_from_bulletin_url, slugify
+from .kb_index import SIDECAR_SUFFIX, KBDocument, KBIndexer
 from .kb_metadata import attachment_attributes, message_attributes, write_sidecar
 from .uploader import S3Uploader
 from .web import WebClient
@@ -53,10 +54,12 @@ class Pipeline:
         force: bool = False,
         since: date | None = None,
         until: date | None = None,
+        indexer: KBIndexer | None = None,   # re-index each message in the KB after upload
     ):
         self._settings = settings
         self._client = client
         self._uploader = uploader
+        self._indexer = indexer
         self._output_dir = output_dir
         self._force = force
         self._since = since
@@ -229,9 +232,32 @@ class Pipeline:
             for local_path, key in uploads:
                 self._uploader.upload_and_delete(local_path, key)
             logger.info("CSMS %s complete: %d file(s) uploaded", mid, len(uploads))
+
+            if self._indexer is not None:
+                self._reindex(bulletin, [key for _, key in uploads if not key.endswith(SIDECAR_SUFFIX)])
         finally:
             if self._uploader is not None:
                 shutil.rmtree(workdir, ignore_errors=True)
+
+    def _reindex(self, bulletin: Bulletin, keys: list[str]) -> None:
+        """Delete + re-ingest this message's freshly uploaded documents so the
+        KB's vectors carry the new sidecar attributes."""
+        bucket = self._settings.s3_bucket
+        date_numeric = (
+            int(bulletin.sent_at.astimezone(timezone.utc).strftime("%Y%m%d")) if bulletin.sent_at else None
+        )
+        docs = [
+            KBDocument(
+                uri=f"s3://{bucket}/{key}",
+                sidecar_uri=f"s3://{bucket}/{key}{SIDECAR_SUFFIX}",
+                message_id=bulletin.message_id,
+                date_numeric=date_numeric,
+            )
+            for key in keys
+        ]
+        stats = self._indexer.reindex(docs)
+        if stats.failed:
+            raise RuntimeError(f"KB re-index failed for CSMS {bulletin.message_id}: {stats.failures}")
 
     @staticmethod
     def _render_text_doc(bulletin: Bulletin) -> str:

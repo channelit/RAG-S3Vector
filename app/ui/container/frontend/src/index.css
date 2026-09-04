@@ -28,6 +28,29 @@
   color: #1b1b1b;
 }
 
+/* cbp.gov widens the banner and the extended header to 90% of the viewport at
+   desktop widths instead of USWDS's 64rem cap (body content keeps the default). */
+@media (min-width: 64em) {
+  .usa-banner__inner,
+  .usa-banner__content {
+    width: 90%;
+    max-width: 90%;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .cbp-header.usa-header--extended .usa-navbar,
+  .cbp-header.usa-header--extended .usa-nav__inner {
+    width: auto;
+    max-width: 90%;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  /* Search box hugs the right edge of the widened header */
+  .cbp-header .usa-nav__secondary {
+    right: 0;
+  }
+}
+
 .cbp-header.usa-header--extended {
   background-color: var(--cbp-black);
   border-bottom: 1px solid #dedfe0;
@@ -77,10 +100,19 @@
     background-color: var(--cbp-black);
     border-top: none;
   }
+  /* cbp.gov centers the primary menu under the wordmark and spreads the items
+     out (1rem link padding plus a 2rem caret gutter); USWDS left-aligns them
+     with a -1rem outdent. */
+  .cbp-header .usa-nav__primary {
+    justify-content: center;
+    margin-left: 0;
+  }
   .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link,
   .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link:hover {
     color: #fff;
     font-weight: 700;
+    padding-left: 2rem;
+    padding-right: 2rem;
   }
   .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link:hover::after,
   .cbp-header .usa-nav__primary > .usa-nav__primary-item > .usa-nav__link.usa-current::after {

@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 class Settings:
     s3_bucket: str = field(default_factory=lambda: os.environ.get("S3_BUCKET_NAME", ""))
     s3_prefix: str = field(default_factory=lambda: os.environ.get("S3_PREFIX", "csms/"))
+    # Bedrock Knowledge Base + its S3 data source, needed only for re-indexing
+    # (`reindex` mode / `--reindex`): IDs, not names.
+    knowledge_base_id: str = field(default_factory=lambda: os.environ.get("KNOWLEDGE_BASE_ID", ""))
+    kb_data_source_id: str = field(default_factory=lambda: os.environ.get("KB_DATA_SOURCE_ID", ""))
     request_delay: float = field(
         default_factory=lambda: float(os.environ.get("REQUEST_DELAY_SECONDS", "0.7"))
     )
