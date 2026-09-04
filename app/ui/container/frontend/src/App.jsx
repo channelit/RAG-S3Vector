@@ -4,10 +4,19 @@ import dotGovImg from '@uswds/uswds/img/icon-dot-gov.svg'
 import httpsImg from '@uswds/uswds/img/icon-https.svg'
 import closeImg from '@uswds/uswds/img/usa-icons/close.svg'
 import searchImg from '@uswds/uswds/img/usa-icons-bg/search--white.svg'
-import cbpWordmark from './assets/cbp-wordmark-white.png'
-// Seals served locally (copied from cbp.gov theme assets) — no external image hosts.
-import CBP_SEAL from './assets/cbp-seal.png'
+import cbpWordmark from './assets/cbp-wordmark-white.svg'
+// Seals served locally as SVG (CBP seal traced from the public-domain artwork) — no external image hosts.
+import CBP_SEAL from './assets/cbp-seal.svg'
 import DHS_SEAL from './assets/dhs-seal.svg'
+// Social icons copied from the cbp.gov theme (circular, single-colour)
+import xIcon from './assets/social/x.svg'
+import facebookIcon from './assets/social/facebook.svg'
+import instagramIcon from './assets/social/instagram.svg'
+import flickrIcon from './assets/social/flickr.svg'
+import truthSocialIcon from './assets/social/truth-social.svg'
+import youtubeIcon from './assets/social/youtube.svg'
+import linkedinIcon from './assets/social/linkedin.svg'
+import emailIcon from './assets/social/email.svg'
 
 
 function GovBanner() {
@@ -78,6 +87,96 @@ const CBP_NAV = [
   { label: 'Careers', href: 'https://careers.cbp.gov/s/' },
   { label: 'Employee Resources', href: 'https://www.cbp.gov/employee-resources' },
 ]
+
+// Official CBP channels and footer links, mirrored from the cbp.gov footer.
+const CBP_SOCIAL = [
+  { label: 'X', href: 'https://x.com/cbp', icon: xIcon },
+  { label: 'Facebook', href: 'https://www.facebook.com/CBPgov', icon: facebookIcon },
+  { label: 'Instagram', href: 'https://www.instagram.com/cbpgov', icon: instagramIcon },
+  { label: 'Flickr', href: 'https://www.flickr.com/photos/cbpphotos', icon: flickrIcon },
+  { label: 'Truth Social', href: 'https://truthsocial.com/@cbpgov', icon: truthSocialIcon },
+  { label: 'YouTube', href: 'https://www.youtube.com/channel/UCVRj-aUsXBrlM8elk3zmLvw', icon: youtubeIcon },
+  { label: 'LinkedIn', href: 'https://www.linkedin.com/company/customs-and-border-protection', icon: linkedinIcon },
+  { label: 'Email Updates', href: 'https://public.govdelivery.com/accounts/USDHSCBP/subscriber/new', icon: emailIcon },
+]
+
+const CBP_FOOTER_LINKS = [
+  [
+    ['About CBP', 'https://www.cbp.gov/about'],
+    ['Section 508 Accessibility', 'https://www.cbp.gov/site-policy-notices/accessibility'],
+    ['Accountability', 'https://www.cbp.gov/newsroom/accountability-and-transparency'],
+    ['DHS Components', 'https://www.dhs.gov/operational-and-support-components'],
+    ['Forms', 'https://www.cbp.gov/newsroom/publications/forms'],
+  ],
+  [
+    ['Freedom of Information Act (FOIA)', 'https://www.cbp.gov/site-policy-notices/foia'],
+    ['Inspector General', 'https://www.oig.dhs.gov/'],
+    ['No FEAR Act', 'https://www.cbp.gov/about/eeo/no-fear-act'],
+    ['Vulnerability Disclosure Program', 'https://www.cbp.gov/document/directives/vulnerability-disclosure-program-policy-and-rules-engagement'],
+    ['Privacy', 'https://www.cbp.gov/site-policy-notices/privacy-policy'],
+  ],
+  [
+    ['Contact Us', 'https://www.cbp.gov/about/contact'],
+    ['Site Policies', 'https://www.cbp.gov/site-policy-notices'],
+    ['The White House', 'https://www.whitehouse.gov/'],
+    ['USA.gov', 'https://www.usa.gov/'],
+    ['Freedom 250', 'https://www.cbp.gov/250'],
+  ],
+]
+
+/** cbp.gov-style footer: white band with the CBP wordmark + social links, then
+ *  a black band carrying the DHS identifier and three columns of links. */
+function SiteFooter() {
+  return (
+    <footer className="usa-footer usa-footer--medium cbp-footer">
+      <div className="usa-footer__primary-section cbp-footer__top">
+        <div className="grid-container cbp-footer__top-inner">
+          <a href="https://www.cbp.gov" className="cbp-footer__wordmark">
+            <img className="cbp-footer__seal" src={CBP_SEAL} alt="" />
+            <span className="cbp-footer__wordmark-text">U.S. Customs and<br />Border Protection</span>
+          </a>
+          <ul className="cbp-footer__social" aria-label="CBP social media">
+            {CBP_SOCIAL.map((s) => (
+              <li key={s.href}>
+                <a className="usa-social-link cbp-social-link" href={s.href} target="_blank" rel="noopener" title={`CBP ${s.label}`}>
+                  <img src={s.icon} alt={s.label} />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <div className="usa-footer__secondary-section cbp-footer__bottom">
+        <div className="grid-container">
+          <section className="usa-identifier__section usa-identifier__section--masthead" aria-label="Agency identifier">
+            <div className="usa-identifier__container">
+              <div className="usa-identifier__logos">
+                <a href="https://www.dhs.gov" className="usa-identifier__logo">
+                  <img className="usa-identifier__logo-img" src={DHS_SEAL} alt="U.S. Department of Homeland Security seal" role="img" />
+                </a>
+              </div>
+              <div className="usa-identifier__identity" aria-label="Agency description">
+                <p className="usa-identifier__identity-domain">CBP.gov</p>
+                <p className="usa-identifier__identity-disclaimer">
+                  An official website of the <a href="https://www.dhs.gov">U.S. Department of Homeland Security</a>
+                </p>
+              </div>
+            </div>
+          </section>
+          <nav className="cbp-footer__links grid-row grid-gap-lg" aria-label="Footer links">
+            {CBP_FOOTER_LINKS.map((column, i) => (
+              <ul key={i} className="tablet:grid-col-4">
+                {column.map(([label, href]) => (
+                  <li key={href}><a href={href}>{label}</a></li>
+                ))}
+              </ul>
+            ))}
+          </nav>
+        </div>
+      </div>
+    </footer>
+  )
+}
 
 /** cbp.gov-style extended header: dark bar, seal wordmark, site search, primary links.
  *  USWDS JS is not loaded in this app, so the mobile menu toggle is handled here. */
@@ -340,124 +439,7 @@ function App() {
         </div>
       </main>
 
-      <footer className="usa-footer usa-footer--slim">
-        <div className="usa-footer__primary-section">
-          <div className="usa-footer__primary-container grid-row">
-            <div className="mobile-lg:grid-col-8">
-              <nav className="usa-footer__nav" aria-label="Footer navigation">
-                <ul className="grid-row grid-gap">
-                  <li className="mobile-lg:grid-col-6 desktop:grid-col-auto usa-footer__primary-content">
-                    <a className="usa-footer__primary-link" href="https://www.cbp.gov">CBP.gov</a>
-                  </li>
-                  <li className="mobile-lg:grid-col-6 desktop:grid-col-auto usa-footer__primary-content">
-                    <a className="usa-footer__primary-link" href="https://www.dhs.gov">DHS.gov</a>
-                  </li>
-                  <li className="mobile-lg:grid-col-6 desktop:grid-col-auto usa-footer__primary-content">
-                    <a className="usa-footer__primary-link" href="https://www.cbp.gov/about/legal/foia">FOIA</a>
-                  </li>
-                  <li className="mobile-lg:grid-col-6 desktop:grid-col-auto usa-footer__primary-content">
-                    <a className="usa-footer__primary-link" href="https://www.cbp.gov/about/legal/privacy-policy">Privacy Policy</a>
-                  </li>
-                </ul>
-              </nav>
-            </div>
-            <div className="mobile-lg:grid-col-4">
-              <address className="usa-footer__address">
-                <div className="grid-row grid-gap">
-                  <div className="grid-col-auto mobile-lg:grid-col-12 desktop:grid-col-auto">
-                    <div className="usa-footer__contact-info">
-                      <a href="https://www.cbp.gov/contact">Contact CBP</a>
-                    </div>
-                  </div>
-                </div>
-              </address>
-            </div>
-          </div>
-        </div>
-        <div className="usa-footer__secondary-section">
-          <div className="grid-container">
-            <div className="usa-footer__logo grid-row grid-gap-2">
-              <div className="grid-col-auto">
-                <img className="usa-footer__logo-img" src={CBP_SEAL} alt="" />
-              </div>
-              <div className="grid-col-auto">
-                <p className="usa-footer__logo-heading">U.S. Customs and Border Protection</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </footer>
-
-      <div className="usa-identifier">
-        <section
-          className="usa-identifier__section usa-identifier__section--masthead"
-          aria-label="Agency identifier"
-        >
-          <div className="usa-identifier__container">
-            <div className="usa-identifier__logos">
-              <a href="https://www.cbp.gov" className="usa-identifier__logo">
-                <img
-                  className="usa-identifier__logo-img"
-                  src={CBP_SEAL}
-                  alt="CBP seal"
-                  role="img"
-                />
-              </a>
-              <a href="https://www.dhs.gov" className="usa-identifier__logo">
-                <img
-                  className="usa-identifier__logo-img"
-                  src={DHS_SEAL}
-                  alt="DHS seal"
-                  role="img"
-                />
-              </a>
-            </div>
-            <section className="usa-identifier__identity" aria-label="Agency description">
-              <p className="usa-identifier__identity-domain">cbp.gov</p>
-              <p className="usa-identifier__identity-disclaimer">
-                An official website of{' '}
-                <a href="https://www.cbp.gov">U.S. Customs and Border Protection</a>,{' '}
-                <a href="https://www.dhs.gov">U.S. Department of Homeland Security</a>
-              </p>
-            </section>
-          </div>
-        </section>
-        <nav
-          className="usa-identifier__section usa-identifier__section--required-links"
-          aria-label="Important links"
-        >
-          <div className="usa-identifier__container">
-            <ul className="usa-identifier__required-links-list">
-              <li className="usa-identifier__required-links-item">
-                <a href="https://www.cbp.gov/about" className="usa-identifier__required-link usa-link">About CBP</a>
-              </li>
-              <li className="usa-identifier__required-links-item">
-                <a href="https://www.cbp.gov/about/legal/accessibility" className="usa-identifier__required-link usa-link">Accessibility statement</a>
-              </li>
-              <li className="usa-identifier__required-links-item">
-                <a href="https://www.cbp.gov/about/legal/foia" className="usa-identifier__required-link usa-link">FOIA requests</a>
-              </li>
-              <li className="usa-identifier__required-links-item">
-                <a href="https://www.cbp.gov/about/legal/privacy-policy" className="usa-identifier__required-link usa-link">Privacy policy</a>
-              </li>
-              <li className="usa-identifier__required-links-item">
-                <a href="https://www.dhs.gov/vulnerability-disclosure-policy" className="usa-identifier__required-link usa-link">Vulnerability disclosure policy</a>
-              </li>
-            </ul>
-          </div>
-        </nav>
-        <section
-          className="usa-identifier__section usa-identifier__section--usagov"
-          aria-label="U.S. government information and services"
-        >
-          <div className="usa-identifier__container">
-            <div className="usa-identifier__usagov-description">
-              Looking for U.S. government information and services?
-            </div>
-            <a href="https://www.usa.gov/" className="usa-link">Visit USA.gov</a>
-          </div>
-        </section>
-      </div>
+      <SiteFooter />
     </>
   )
 }

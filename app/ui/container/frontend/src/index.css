@@ -138,17 +138,96 @@
   }
 }
 
-/* Seal in footer / identifier */
-.usa-footer__logo-img {
-  height: 40px;
-  width: 40px;
-  object-fit: contain;
+/* ---- cbp.gov-style footer ------------------------------------------ */
+.cbp-footer__top {
+  background-color: #fff;
+  border-top: 1px solid #dfe1e2;
 }
-
-.usa-identifier__logo-img {
-  height: 48px;
-  width: 48px;
-  object-fit: contain;
+.cbp-footer__top-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+.cbp-footer__wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+}
+.cbp-footer__seal {
+  height: 4.5rem;
+  width: 4.5rem;
+}
+.cbp-footer__wordmark-text {
+  font-family: "Merriweather Web", Georgia, Cambria, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 1.25rem;
+  line-height: 1.2;
+  color: #00578e;
+}
+.cbp-footer__social {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+/* Thin-ringed circular icons as on cbp.gov (44px, 1px #666 border) */
+.cbp-social-link {
+  display: block;
+  height: 44px;
+  width: 44px;
+  padding: 0;
+  background: none;
+  border: 1px solid #666;
+  border-radius: 50%;
+}
+.cbp-social-link img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.cbp-footer__bottom {
+  background-color: var(--cbp-black);
+  color: #fff;
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+}
+.cbp-footer__bottom .usa-identifier__container {
+  max-width: none;
+  padding: 0;
+}
+.cbp-footer__bottom .usa-identifier__logo {
+  display: block;
+  height: 3rem;
+  margin-right: 1rem;
+}
+.cbp-footer__bottom .usa-identifier__identity-domain,
+.cbp-footer__bottom .usa-identifier__identity-disclaimer,
+.cbp-footer__bottom .usa-identifier__identity-disclaimer a {
+  color: #fff;
+}
+.cbp-footer__links {
+  margin-top: 1.5rem;
+}
+.cbp-footer__links ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cbp-footer__links li {
+  padding: 0.5rem 0;
+}
+.cbp-footer__links a {
+  color: #c0c2c4;
+}
+.cbp-footer__links a:hover {
+  color: #fff;
 }
 
 /* Preserve whitespace in LLM answers */
