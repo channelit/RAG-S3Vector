@@ -1,14 +1,11 @@
 """FastAPI backend for the container UI.
 
-Queries a Bedrock Knowledge Base in two steps — bedrock-agent-runtime
-retrieve() for chunks, then bedrock-runtime converse() to write the answer.
-
-Date filtering: the UI's date range is turned into a `date_numeric`
-(YYYYMMDD int) metadata filter on retrieve(). That attribute comes solely
-from the scraper's .metadata.json sidecars, which the KB indexes into its
-vector store, so the range is enforced inside the vector search. There is
-no post-filtering and no other date source (no S3 object tags, no
-ingestion-Lambda fields).
+One Bedrock Knowledge Base RetrieveAndGenerate call per question: the KB
+retrieves the chunks (the UI date range becomes a `date_numeric` YYYYMMDD
+metadata filter — the attribute the scraper writes into each document's
+.metadata.json sidecar) and Bedrock writes the answer from them with the
+configured model, applying the guardrail when one is set. Sources come from
+the response citations.
 """
 
 import logging
@@ -28,35 +25,28 @@ from pydantic import BaseModel
 logger = logging.getLogger("uvicorn")
 
 KNOWLEDGE_BASE_ID = os.environ["KNOWLEDGE_BASE_ID"]
-# Managed knowledge bases don't support RetrieveAndGenerate, so retrieval and
-# generation are separate calls: bedrock-agent-runtime retrieve() for chunks,
-# then bedrock-runtime converse() to write the answer.
-GEN_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
-# Optional Bedrock Guardrail applied to generation. GUARDRAIL_ID takes the
-# guardrail's ID or ARN (not its name); version is "DRAFT" or a published number.
+bedrock_agent = boto3.client("bedrock-agent-runtime")
+REGION = bedrock_agent.meta.region_name or "us-east-1"
+# Generation model for RetrieveAndGenerate: a foundation-model / inference-profile
+# ARN, or a bare foundation model ID (turned into a foundation-model ARN).
+_MODEL = (
+    os.environ.get("BEDROCK_MODEL_ARN")
+    or os.environ.get("BEDROCK_MODEL_ID")
+    or "anthropic.claude-sonnet-4-6"
+)
+MODEL_ARN = _MODEL if _MODEL.startswith("arn:") else f"arn:aws:bedrock:{REGION}::foundation-model/{_MODEL}"
+# Optional Bedrock Guardrail applied to generation: the guardrail's ID (not its
+# name); version is "DRAFT" or a published number.
 GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID") or None
 GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
 NUM_RESULTS = int(os.environ.get("KB_NUM_RESULTS", "8"))
-# Lifetime of presigned S3 links returned for sources that have no public URL.
-SOURCE_URL_TTL_SECONDS = int(os.environ.get("SOURCE_URL_TTL_SECONDS", "3600"))
 
 # Public CSMS bulletin URL: the numeric message ID rendered in lowercase hex
-# (CSMS # 69302472 -> .../bulletins/42178c8). Keys written by the scraper look
-# like csms/<id>/csms-<id>.txt or csms/<id>/attachments/<file>, optionally
-# under an extra batch prefix (csms/1/<id>/...).
+# (CSMS # 69302472 -> .../bulletins/42178c8). Document locations reported in
+# citations look like .../csms/<id>/csms-<id>.txt or .../csms/<id>/attachments/<file>,
+# optionally under an extra batch prefix (csms/1/<id>/...).
 BULLETIN_URL_TEMPLATE = "https://content.govdelivery.com/accounts/USDHSCBP/bulletins/{code}"
 _CSMS_KEY_RE = re.compile(r"(?:^|/)csms/(?:[^/]+/)*?(\d{6,10})/(?P<rest>.+)$")
-
-bedrock_agent = boto3.client("bedrock-agent-runtime")
-bedrock_runtime = boto3.client("bedrock-runtime")
-s3 = boto3.client("s3")
-
-SYSTEM_PROMPT = (
-    "You are a compliance assistant answering questions about CBP Cargo Systems "
-    "Messaging Service (CSMS) messages. Answer using only the numbered context "
-    "passages provided. If the context does not contain the answer, say so. "
-    "Be concise and cite the CSMS message numbers you relied on."
-)
 
 app = FastAPI(title="RAG Query API")
 
@@ -88,126 +78,66 @@ def _build_filter(from_num: int | None, to_num: int | None) -> dict | None:
     return conditions[0] if len(conditions) == 1 else {"andAll": conditions}
 
 
-def _retrieve(query: str, retrieval_filter: dict | None) -> list[dict]:
-    """Vector search over the KB. The `date_numeric` filter (when set) is
-    applied by the vector store itself, so every result is inside the range."""
-    config: dict = {"numberOfResults": NUM_RESULTS}
+def _retrieve_and_generate(query: str, retrieval_filter: dict | None) -> dict:
+    vector_search: dict = {"numberOfResults": NUM_RESULTS}
     if retrieval_filter:
-        config["filter"] = retrieval_filter
-    response = bedrock_agent.retrieve(
-        knowledgeBaseId=KNOWLEDGE_BASE_ID,
-        retrievalQuery={"text": query},
-        retrievalConfiguration={"vectorSearchConfiguration": config},
+        vector_search["filter"] = retrieval_filter
+    kb_config: dict = {
+        "knowledgeBaseId": KNOWLEDGE_BASE_ID,
+        "modelArn": MODEL_ARN,
+        "retrievalConfiguration": {"vectorSearchConfiguration": vector_search},
+    }
+    if GUARDRAIL_ID:
+        kb_config["generationConfiguration"] = {
+            "guardrailConfiguration": {"guardrailId": GUARDRAIL_ID, "guardrailVersion": GUARDRAIL_VERSION}
+        }
+    return bedrock_agent.retrieve_and_generate(
+        input={"text": query},
+        retrieveAndGenerateConfiguration={"type": "KNOWLEDGE_BASE", "knowledgeBaseConfiguration": kb_config},
     )
-    return response.get("retrievalResults", [])
 
 
-_S3_HOST_RE = re.compile(r"^([^.]+)\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$")
+def _document_path(reference: dict) -> str:
+    """Path part of the citation's document location (any location type)."""
+    location = reference.get("location") or {}
+    for value in location.values():
+        if isinstance(value, dict) and value.get("uri"):
+            return unquote(urlparse(value["uri"]).path)
+        if isinstance(value, dict) and value.get("url"):
+            return value["url"]
+    return ""
 
 
-def _s3_bucket_key(uri: str) -> tuple[str, str] | None:
-    """(bucket, key) for an s3:// URI or a virtual-hosted S3 https URL
-    (the KB reports locations as https://<bucket>.s3.amazonaws.com/<key>)."""
-    parsed = urlparse(uri)
-    key = unquote(parsed.path.lstrip("/"))
-    if parsed.scheme == "s3" and parsed.netloc:
-        return parsed.netloc, key
-    if parsed.scheme == "https":
-        m = _S3_HOST_RE.match(parsed.netloc)
-        if m and key:
-            return m.group(1), key
-    return None
-
-
-def _s3_uri_url(uri: str) -> str | None:
-    """Clickable URL for a KB result's location: the public GovDelivery
-    bulletin for CSMS message text, a presigned GET link for any other S3
-    object, and non-S3 URLs (archive-PDF-derived pages) as they are."""
-    located = _s3_bucket_key(uri)
-    if located is None:
-        return uri if uri.startswith(("http://", "https://")) else None
-    bucket, key = located
-    m = _CSMS_KEY_RE.search(key)
-    if m and m.group("rest") == f"csms-{m.group(1)}.txt":
-        return BULLETIN_URL_TEMPLATE.format(code=f"{int(m.group(1)):x}")
-    try:
-        return s3.generate_presigned_url(
-            "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=SOURCE_URL_TTL_SECONDS
-        )
-    except (ClientError, BotoCoreError) as exc:  # pragma: no cover - defensive
-        logger.warning("Could not presign %s: %s", uri, exc)
-        return None
-
-
-def _source_info(result: dict) -> tuple[str, str | None]:
-    """(label, url) for a retrieved chunk. Uses the scraper's sidecar
-    attributes (message_id/subject/source_url/sent_date); objects without a
-    sidecar (e.g. standalone PDFs) get the KB's own _document_title / _source_uri."""
-    meta = result.get("metadata", {})
+def _source_info(reference: dict) -> tuple[str, str | None]:
+    """(label, url) for a cited chunk. Uses the scraper's sidecar attributes
+    (message_id/subject/source_url/sent_date) when the KB exposes them; a CSMS
+    document path still yields a "CSMS #<id>" label and its bulletin URL."""
+    meta = reference.get("metadata") or {}
     url = meta.get("source_url") or meta.get("parent_source_url")
     subject = meta.get("subject") or meta.get("parent_subject")
     message_id = meta.get("message_id")
-    sent = meta.get("sent_date")
-    if not isinstance(sent, str):
-        sent = None
+    sent = meta.get("sent_date") if isinstance(meta.get("sent_date"), str) else None
     if url and message_id and subject:
         head = f"CSMS #{message_id} ({sent})" if sent else f"CSMS #{message_id}"
         return f"{head}: {subject}", url
-    uri = (
-        meta.get("_source_uri")
-        or result.get("location", {}).get("s3Location", {}).get("uri")
-        or url
-        or "unknown source"
-    )
-    # Without sidecar attributes a CSMS key still yields a useful "CSMS #<id>" label.
-    located = _s3_bucket_key(uri)
-    m = _CSMS_KEY_RE.search(located[1]) if located else None
+
+    path = _document_path(reference)
+    m = _CSMS_KEY_RE.search(path)
     if m:
-        title = f"CSMS #{m.group(1)}"
-        if m.group("rest") != f"csms-{m.group(1)}.txt":
+        message_id = m.group(1)
+        title = f"CSMS #{message_id}"
+        if m.group("rest") == f"csms-{message_id}.txt":
+            url = url or BULLETIN_URL_TEMPLATE.format(code=f"{int(message_id):x}")
+        else:
             title += f" attachment: {m.group('rest').rsplit('/', 1)[-1]}"
+            url = url or meta.get("attachment_url")
         if sent:
             title = f"{title} ({sent})"
         if subject:
             title += f": {subject}"
-    else:
-        title = subject or meta.get("_document_title")
-    return (title or uri), (url or _s3_uri_url(uri))
-
-
-def _source_label(result: dict) -> str:
-    return _source_info(result)[0]
-
-
-def _generate_answer(query: str, results: list[dict]) -> tuple[str, bool]:
-    """Write the answer with converse(), applying the guardrail when
-    configured. Returns (answer_text, guardrail_intervened)."""
-    passages = []
-    for i, result in enumerate(results, 1):
-        text = result.get("content", {}).get("text", "")
-        passages.append(f"[{i}] (source: {_source_label(result)})\n{text}")
-    prompt = "Context passages:\n\n" + "\n\n".join(passages) + f"\n\nQuestion: {query}"
-
-    kwargs: dict = {
-        "modelId": GEN_MODEL_ID,
-        "system": [{"text": SYSTEM_PROMPT}],
-        "messages": [{"role": "user", "content": [{"text": prompt}]}],
-        "inferenceConfig": {"maxTokens": 1024},
-    }
-    if GUARDRAIL_ID:
-        kwargs["guardrailConfig"] = {
-            "guardrailIdentifier": GUARDRAIL_ID,
-            "guardrailVersion": GUARDRAIL_VERSION,
-        }
-
-    response = bedrock_runtime.converse(**kwargs)
-    content = response.get("output", {}).get("message", {}).get("content", [])
-    answer = next((block["text"] for block in content if "text" in block), "")
-    intervened = response.get("stopReason") == "guardrail_intervened"
-    if intervened:
-        # answer now carries the guardrail's configured blocked/masked message
-        logger.warning("Guardrail %s v%s intervened", GUARDRAIL_ID, GUARDRAIL_VERSION)
-    return answer, intervened
+        return title, url
+    title = subject or meta.get("_document_title") or path.rsplit("/", 1)[-1] or "unknown source"
+    return title, (url if url else (path if path.startswith("http") else None))
 
 
 @app.get("/health")
@@ -225,34 +155,28 @@ def query(req: QueryRequest):
     if from_num is not None and to_num is not None and from_num > to_num:
         raise HTTPException(status_code=400, detail="date_from must not be after date_to")
 
-    date_filtered = from_num is not None or to_num is not None
     try:
-        results = _retrieve(req.query, _build_filter(from_num, to_num))
-        if date_filtered:
-            logger.info("Date range %s..%s: %d result(s)", req.date_from, req.date_to, len(results))
-        if not results:
-            answer = (
-                "No documents found in the selected date range."
-                if date_filtered
-                else "No matching documents were found in the knowledge base."
-            )
-            return {"answer": answer, "sources": []}
-        answer, guardrail_intervened = _generate_answer(req.query, results)
+        response = _retrieve_and_generate(req.query, _build_filter(from_num, to_num))
     except (ClientError, BotoCoreError) as exc:
-        logger.error("Knowledge Base query failed: %s", exc)
+        logger.error("Knowledge Base RetrieveAndGenerate failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"Knowledge Base query failed: {exc}")
 
-    if guardrail_intervened:
+    answer = (response.get("output") or {}).get("text", "")
+    if response.get("guardrailAction") == "INTERVENED":
         # Don't cite sources under a blocked/masked answer
+        logger.warning("Guardrail %s v%s intervened", GUARDRAIL_ID, GUARDRAIL_VERSION)
         return {"answer": answer or "Response blocked by content policy.", "sources": []}
 
     sources: list[dict] = []
     seen: set[str] = set()
-    for result in results:
-        label, url = _source_info(result)
-        if label not in seen:
-            seen.add(label)
-            sources.append({"label": label, "url": url})
+    for citation in response.get("citations", []):
+        for reference in citation.get("retrievedReferences", []):
+            label, url = _source_info(reference)
+            if label not in seen:
+                seen.add(label)
+                sources.append({"label": label, "url": url})
+    if from_num is not None or to_num is not None:
+        logger.info("Date range %s..%s: %d cited source(s)", req.date_from, req.date_to, len(sources))
     return {"answer": answer, "sources": sources}
 
 
