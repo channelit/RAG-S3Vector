@@ -60,6 +60,7 @@ app/
 └── ui/
     ├── s3-static/index.html       # CloudFront-deployed static UI
     └── container/                 # local-only container UI (Dockerfile, docker-compose.yml, backend/, frontend/)
+        └── backend/kb_report.py   # read-only report: KB document status + sidecar metadata vs. what the index actually stores
 ```
 
 ## Key conventions
@@ -138,6 +139,13 @@ aws bedrock-agent list-ingestion-jobs --profile <AWS_PROFILE> \
 ```
 
 A guardrail cannot be attached to a KB itself; the caller supplies it. The stack's guardrail (ID + pinned version) is what both the query Lambda and the container UI's `RetrieveAndGenerate` call should use — `knowledge_base.generation_model_id` in `common.yml` is the container UI's generation model and what the (disabled) Fargate task role is scoped to.
+
+Report what the KB has actually indexed and which sidecar attributes are queryable (read-only; reconciles the KB document list, the S3 sidecars, and the vectors in the index):
+
+```bash
+cd app/ui/container
+python backend/kb_report.py                          # table; add --format json|csv -o <file>, --no-vectors to skip the index scan
+```
 
 The KB embeds with `knowledge_base.embedding_model_id` (Titan Text v2, on-demand) — independent of the Lambda pipeline's `bedrock.embedding_model_id`. The old managed KB `QFZ5VF1FZN` is not managed by CDK and can be deleted from the console once the new one answers.
 
