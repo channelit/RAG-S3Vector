@@ -27,14 +27,26 @@ logger = logging.getLogger("uvicorn")
 KNOWLEDGE_BASE_ID = os.environ["KNOWLEDGE_BASE_ID"]
 bedrock_agent = boto3.client("bedrock-agent-runtime")
 REGION = bedrock_agent.meta.region_name or "us-east-1"
-# Generation model for RetrieveAndGenerate: a foundation-model / inference-profile
-# ARN, or a bare foundation model ID (turned into a foundation-model ARN).
-_MODEL = (
+_INFERENCE_PROFILE_PREFIXES = ("us.", "eu.", "apac.", "global.")
+
+
+def _model_arn(model: str) -> str:
+    """Generation model for RetrieveAndGenerate. Accepts a full ARN, a
+    cross-region inference-profile ID (us./eu./apac./global. prefix — Claude
+    Sonnet 4.6 is only invocable this way) or a bare foundation model ID."""
+    if model.startswith("arn:"):
+        return model
+    if model.startswith(_INFERENCE_PROFILE_PREFIXES):
+        account = boto3.client("sts").get_caller_identity()["Account"]
+        return f"arn:aws:bedrock:{REGION}:{account}:inference-profile/{model}"
+    return f"arn:aws:bedrock:{REGION}::foundation-model/{model}"
+
+
+MODEL_ARN = _model_arn(
     os.environ.get("BEDROCK_MODEL_ARN")
     or os.environ.get("BEDROCK_MODEL_ID")
-    or "anthropic.claude-sonnet-4-6"
+    or "us.anthropic.claude-sonnet-4-6"
 )
-MODEL_ARN = _MODEL if _MODEL.startswith("arn:") else f"arn:aws:bedrock:{REGION}::foundation-model/{_MODEL}"
 # Optional Bedrock Guardrail applied to generation: the guardrail's ID (not its
 # name); version is "DRAFT" or a published number.
 GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID") or None
@@ -165,7 +177,7 @@ def query(req: QueryRequest):
     if response.get("guardrailAction") == "INTERVENED":
         # Don't cite sources under a blocked/masked answer
         logger.warning("Guardrail %s v%s intervened", GUARDRAIL_ID, GUARDRAIL_VERSION)
-        return {"answer": answer or "Response blocked by content policy.", "sources": []}
+        return {"answer": answer or "Sorry we cannot answer this question.", "sources": []}
 
     sources: list[dict] = []
     seen: set[str] = set()

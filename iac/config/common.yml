@@ -10,6 +10,18 @@ bedrock:
   llm_model_id: "us.meta.llama3-3-70b-instruct-v1:0"
   vector_dimension: 1024
 
+# Standard Bedrock Knowledge Base for the container UI (RetrieveAndGenerate is
+# rejected by managed KBs). Backed by its own S3 Vectors index in the same vector
+# bucket; its S3 data source reads the scraper's uploads (+ .metadata.json
+# sidecars) from the documents bucket under source_prefix.
+knowledge_base:
+  embedding_model_id: "amazon.titan-embed-text-v2:0"   # ON_DEMAND, 1024 dims
+  vector_dimension: 1024
+  source_prefix: "csms/1/"
+  # Model RetrieveAndGenerate answers with (container UI BEDROCK_MODEL_ARN).
+  # Cross-region inference-profile ID; the Fargate task role is scoped to it.
+  generation_model_id: "us.anthropic.claude-sonnet-4-6"
+
 lambda:
   runtime: "PYTHON_3_12"
   handler: "handler.lambda_handler"

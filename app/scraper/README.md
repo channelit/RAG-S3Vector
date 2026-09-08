@@ -188,7 +188,7 @@ python -m scraper all --since 2026-01-01 --force --reindex   # rewrite a whole d
 
 ## Bedrock Knowledge Base setup notes
 
-- Point the KB **S3 data source** at the bucket with inclusion prefix `csms/`; sidecars are picked up automatically by the `<name>.metadata.json` convention (each must stay <10 KB — enforced by the app).
+- The CDK stack (`iac/resources/resource_knowledge_base.py`) creates a standard KB whose **S3 data source** reads the bucket under `knowledge_base.source_prefix` (`csms/1/` — must match `S3_PREFIX` here); sidecars are picked up automatically by the `<name>.metadata.json` convention (each must stay <10 KB — enforced by the app). The stack outputs `KnowledgeBaseId` / `KnowledgeBaseDataSourceId` for `KNOWLEDGE_BASE_ID` / `KB_DATA_SOURCE_ID`.
 - **Do not** upload into the existing `cits-rag-s3vector-documents-*` bucket: its `ObjectCreated` notification feeds the S3 Vectors ingestion Lambda, which would try to ingest every sidecar too.
 - After a scraper run, start a KB **sync/ingestion job** to index the new objects — or run with `--reindex` / `POST /reindex` to push each document (with its sidecar metadata) through the direct-ingestion API instead.
 

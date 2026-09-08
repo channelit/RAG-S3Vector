@@ -1,4 +1,5 @@
 from aws_cdk import (
+    aws_bedrock as bedrock,
     aws_ec2 as ec2,
     aws_ecr_assets as ecr_assets,
     aws_ecs as ecs,
@@ -13,18 +14,29 @@ from config import resource_name
 def create_fargate_resources(
     scope: Construct,
     config: dict,
-    container_env: dict[str, str],
+    knowledge_base: bedrock.CfnKnowledgeBase,
+    guardrail: bedrock.CfnGuardrail,
+    guardrail_version: bedrock.CfnGuardrailVersion,
 ) -> dict:
     """ECS Fargate + ALB for the container UI (currently disabled in rag_stack.py).
 
-    `container_env` must carry what backend/main.py reads — the same keys as
-    app/ui/container/.env.local.example (VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME,
-    EMBEDDING_MODEL_ID, BEDROCK_MODEL_ID, GUARDRAIL_ID, GUARDRAIL_VERSION,
-    optional KNOWLEDGE_BASE_ID / DOCUMENTS_BUCKET_NAME). The backend talks to
-    Bedrock, S3 Vectors and S3 directly (it no longer invokes the query
-    Lambda), so the task role needs those permissions before this is enabled.
+    The backend (app/ui/container/backend/main.py) makes one Bedrock
+    RetrieveAndGenerate call per question against the standard Knowledge Base,
+    generating with `knowledge_base.generation_model_id` and applying the
+    stack's guardrail. The container env mirrors app/ui/container/.env.local.example
+    (KNOWLEDGE_BASE_ID, BEDROCK_MODEL_ARN, GUARDRAIL_ID, GUARDRAIL_VERSION) and
+    the task role is scoped to exactly those three resources.
     """
     project_name = config["project_name"]
+    region, account = scope.region, scope.account
+    generation_model_id = config["knowledge_base"]["generation_model_id"]
+
+    container_env = {
+        "KNOWLEDGE_BASE_ID": knowledge_base.attr_knowledge_base_id,
+        "BEDROCK_MODEL_ARN": generation_model_id,
+        "GUARDRAIL_ID": guardrail.attr_guardrail_id,
+        "GUARDRAIL_VERSION": guardrail_version.attr_version,
+    }
     fargate_cfg = config.get("fargate", {})
     cpu = fargate_cfg.get("cpu", 256)
     memory = fargate_cfg.get("memory", 512)
@@ -60,12 +72,38 @@ def create_fargate_resources(
         directory="../app/ui/container",
     )
 
-    # Task role: grant bedrock / s3vectors / s3 access here before enabling
-    # (see resource_iam.py for the equivalent Lambda role statements).
     task_role = iam.Role(
         scope,
         "FargateTaskRole",
         assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+    )
+    # RetrieveAndGenerate against the KB (the KB's own service role handles the
+    # vector index and embedding model behind it).
+    task_role.add_to_policy(
+        iam.PolicyStatement(
+            actions=["bedrock:Retrieve", "bedrock:RetrieveAndGenerate"],
+            resources=[knowledge_base.attr_knowledge_base_arn],
+        )
+    )
+    # Generation model: the inference profile plus the foundation model in
+    # every region the profile may route to (same shape as resource_iam.py).
+    if generation_model_id.startswith(("us.", "eu.", "apac.", "global.")):
+        foundation_model_id = generation_model_id.split(".", 1)[1]
+        model_arns = [
+            f"arn:aws:bedrock:{region}:{account}:inference-profile/{generation_model_id}",
+            f"arn:aws:bedrock:*::foundation-model/{foundation_model_id}",
+        ]
+    else:
+        model_arns = [f"arn:aws:bedrock:{region}::foundation-model/{generation_model_id}"]
+    task_role.add_to_policy(
+        iam.PolicyStatement(actions=["bedrock:InvokeModel"], resources=model_arns)
+    )
+    # Guardrail applied in generationConfiguration.
+    task_role.add_to_policy(
+        iam.PolicyStatement(
+            actions=["bedrock:ApplyGuardrail"],
+            resources=[guardrail.attr_guardrail_arn],
+        )
     )
 
     service = ecs_patterns.ApplicationLoadBalancedFargateService(

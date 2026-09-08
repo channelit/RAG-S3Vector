@@ -5,6 +5,7 @@ from constructs import Construct
 from config import load_config
 from resources.resource_guardrail import create_guardrail
 from resources.resource_iam import create_lambda_role
+from resources.resource_knowledge_base import create_knowledge_base
 from resources.resource_lambda import create_lambda_functions
 from resources.resource_s3 import create_document_bucket
 from resources.resource_s3_vectors import create_vector_resources
@@ -45,23 +46,29 @@ class RagStack(Stack):
             vector_index_name=vector_index_name,
         )
 
+        kb_resources = create_knowledge_base(
+            self,
+            config,
+            document_bucket=document_bucket,
+            vector_bucket_name=vector_bucket_name,
+            vector_bucket_cr=vector_resources["vector_bucket_cr"],
+        )
+
         ui_resources = create_ui_resources(
             self,
             config,
             query_fn=lambda_functions["query_fn"],
         )
 
-        # Fargate disabled — UI container runs locally via docker-compose
+        # Fargate disabled — UI container runs locally via docker-compose with
+        # the same KB + guardrail wired in through .env.local (see the
+        # ContainerUiEnv output below).
         # fargate_resources = create_fargate_resources(
         #     self,
         #     config,
-        #     container_env={  # what backend/main.py reads; see app/ui/container/.env.local.example
-        #         "VECTOR_BUCKET_NAME": vector_bucket_name,
-        #         "VECTOR_INDEX_NAME": vector_index_name,
-        #         "EMBEDDING_MODEL_ID": config["bedrock"]["embedding_model_id"],
-        #         "GUARDRAIL_ID": guardrail.attr_guardrail_id,
-        #         "GUARDRAIL_VERSION": guardrail_version.attr_version,
-        #     },
+        #     knowledge_base=kb_resources["knowledge_base"],
+        #     guardrail=guardrail,
+        #     guardrail_version=guardrail_version,
         # )
 
         cdk.CfnOutput(self, "DocumentBucketName", value=document_bucket.bucket_name)
@@ -69,6 +76,9 @@ class RagStack(Stack):
         cdk.CfnOutput(self, "VectorIndexName", value=vector_index_name)
         cdk.CfnOutput(self, "GuardrailId", value=guardrail.attr_guardrail_id)
         cdk.CfnOutput(self, "GuardrailVersion", value=guardrail_version.attr_version)
+        cdk.CfnOutput(self, "KnowledgeBaseId", value=kb_resources["knowledge_base"].attr_knowledge_base_id)
+        cdk.CfnOutput(self, "KnowledgeBaseDataSourceId", value=kb_resources["data_source"].attr_data_source_id)
+        cdk.CfnOutput(self, "KnowledgeBaseIndexName", value=kb_resources["kb_index_name"])
         cdk.CfnOutput(self, "IngestionFunctionName", value=lambda_functions["ingestion_fn"].function_name)
         cdk.CfnOutput(self, "QueryFunctionName", value=lambda_functions["query_fn"].function_name)
         cdk.CfnOutput(
@@ -77,4 +87,19 @@ class RagStack(Stack):
             value=f"https://{ui_resources['distribution'].distribution_domain_name}",
         )
         cdk.CfnOutput(self, "UiBucketName", value=ui_resources["site_bucket"].bucket_name)
-        # cdk.CfnOutput(self, "FargateUrl", ...)
+        # Paste-ready app/ui/container/.env.local lines: the standard KB, the
+        # generation model, and the stack's guardrail (ID + pinned version).
+        cdk.CfnOutput(
+            self,
+            "ContainerUiEnv",
+            value=cdk.Fn.join(
+                " ",
+                [
+                    f"KNOWLEDGE_BASE_ID={kb_resources['knowledge_base'].attr_knowledge_base_id}",
+                    f"BEDROCK_MODEL_ARN={config['knowledge_base']['generation_model_id']}",
+                    f"GUARDRAIL_ID={guardrail.attr_guardrail_id}",
+                    f"GUARDRAIL_VERSION={guardrail_version.attr_version}",
+                ],
+            ),
+        )
+        # cdk.CfnOutput(self, "FargateUrl", value=f"http://{fargate_resources['alb'].load_balancer_dns_name}")

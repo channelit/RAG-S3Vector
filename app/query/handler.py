@@ -225,10 +225,13 @@ def lambda_handler(event, context):
     logger.info("LLM response: guardrailAction=%s generation_chars=%d", guardrail_action, len(generation))
 
     if guardrail_action == "INTERVENED":
+        # `generation` carries the guardrail's configured blocked message.
         logger.warning("Guardrail intervened — blocking response")
         return {
             "statusCode": 200,
-            "body": json.dumps({"answer": "Response blocked by content policy.", "sources": []}),
+            "body": json.dumps(
+                {"answer": generation.strip() or "Sorry we cannot answer this question.", "sources": []}
+            ),
         }
 
     # S3 Vectors metadata is plain JSON — access source directly, not via typed fields

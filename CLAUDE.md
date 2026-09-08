@@ -40,8 +40,10 @@ iac/                              # AWS CDK (Python)
     resources/
     ├── resource_s3.py            # document bucket (versioned, DESTROY)
     ├── resource_s3_vectors.py    # vector bucket + index via AwsCustomResource (S3 Vectors has no CDK L2 yet)
-    ├── resource_guardrail.py     # CfnGuardrail + pinned CfnGuardrailVersion
+    ├── resource_guardrail.py     # CfnGuardrail (politics/impoliteness topics, profanity, all-PII block incl. NAME, fixed "Sorry…" message) + pinned version
     ├── resource_iam.py           # shared Lambda role (bedrock:InvokeModel, ApplyGuardrail, s3vectors:*)
+    ├── resource_knowledge_base.py # standard Bedrock KB for the container UI: own S3 Vectors index (AMAZON_BEDROCK_* non-filterable keys)
+    │                              #   + service role + S3 data source on the documents bucket under knowledge_base.source_prefix
     ├── resource_lambda.py        # both Lambdas; ingestion has pip-install bundling, query does not
     ├── resource_ui.py            # S3 + CloudFront static site, /api/* → query Lambda Function URL
     └── resource_fargate.py       # ECS Fargate + ALB for the container UI — defined but not deployed
@@ -121,6 +123,23 @@ docker compose run --rm scraper current                      # live feed (100 la
 docker compose run --rm scraper archive 2021-2025 --limit 200
 python -m scraper message 69302472 --dry-run                 # no AWS needed, writes to ./out
 ```
+
+### Bedrock Knowledge Base (container UI)
+
+`cdk deploy` creates the standard KB (`knowledge_base` section of `common.yml`) and prints `KnowledgeBaseId` / `KnowledgeBaseDataSourceId`. It starts empty — sync it, then point both `.env.local` files at it:
+
+```bash
+aws bedrock-agent start-ingestion-job --profile <AWS_PROFILE> \
+  --knowledge-base-id <KnowledgeBaseId> --data-source-id <KnowledgeBaseDataSourceId>
+aws bedrock-agent list-ingestion-jobs --profile <AWS_PROFILE> \
+  --knowledge-base-id <KnowledgeBaseId> --data-source-id <KnowledgeBaseDataSourceId>   # wait for COMPLETE
+# app/ui/container/.env.local: paste the ContainerUiEnv output (KNOWLEDGE_BASE_ID, BEDROCK_MODEL_ARN, GUARDRAIL_ID, GUARDRAIL_VERSION)
+# app/scraper/.env.local:      KNOWLEDGE_BASE_ID=<KnowledgeBaseId>  KB_DATA_SOURCE_ID=<KnowledgeBaseDataSourceId>
+```
+
+A guardrail cannot be attached to a KB itself; the caller supplies it. The stack's guardrail (ID + pinned version) is what both the query Lambda and the container UI's `RetrieveAndGenerate` call should use — `knowledge_base.generation_model_id` in `common.yml` is the container UI's generation model and what the (disabled) Fargate task role is scoped to.
+
+The KB embeds with `knowledge_base.embedding_model_id` (Titan Text v2, on-demand) — independent of the Lambda pipeline's `bedrock.embedding_model_id`. The old managed KB `QFZ5VF1FZN` is not managed by CDK and can be deleted from the console once the new one answers.
 
 ### Smoke-testing the Query Lambda directly
 
