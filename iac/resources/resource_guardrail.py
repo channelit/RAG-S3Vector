@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 from aws_cdk import aws_bedrock as bedrock
 from constructs import Construct
 
@@ -132,10 +135,22 @@ def create_guardrail(scope: Construct, config: dict) -> dict:
     )
 
     # Pin a published version so callers reference a stable identifier.
+    # A GuardrailVersion is only (re)published when one of its own properties
+    # changes, so editing the policy above would otherwise leave the pinned
+    # version on the old rules. Fingerprinting the guardrail's resolved
+    # properties into the description forces a new version on every change.
+    policy_fingerprint = hashlib.sha256(
+        json.dumps(
+            scope.resolve(guardrail._cfn_properties),  # type: ignore[attr-defined]
+            sort_keys=True,
+            default=str,
+        ).encode()
+    ).hexdigest()[:12]
     guardrail_version = bedrock.CfnGuardrailVersion(
         scope,
         "RagGuardrailVersion",
         guardrail_identifier=guardrail.attr_guardrail_id,
+        description=f"policy {policy_fingerprint}",
     )
 
     return {"guardrail": guardrail, "guardrail_version": guardrail_version}
