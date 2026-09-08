@@ -5,8 +5,11 @@ For a source document `X` in the KB's S3 data source, Bedrock reads
 
     {"metadataAttributes": {"key": "string" | number | boolean | ["list"]}}
 
-The file must stay under 10 KB. Numeric attributes (date_numeric, timestamp)
-support range filtering in KB retrieval queries.
+The file must stay at or under 1 KB: the S3 Vectors-backed KB's sync job
+silently *ignores* documents whose sidecar exceeds 1024 bytes (the 10 KB
+figure applies to OpenSearch-backed stores). `fit_sidecar` enforces that.
+Numeric attributes (date_numeric, timestamp) support range filtering in KB
+retrieval queries.
 """
 
 import json
@@ -18,7 +21,8 @@ from .bulletin import Bulletin
 logger = logging.getLogger(__name__)
 
 _SUBJECT_MAX = 1000
-_SIDECAR_MAX_BYTES = 10 * 1024
+SIDECAR_MAX_BYTES = 1024
+_TRIMMED_SUBJECT_MAX = 200
 
 
 def _date_fields(bulletin: Bulletin) -> dict:
@@ -76,17 +80,55 @@ def attachment_attributes(
     return attrs
 
 
+def sidecar_payload(attributes: dict) -> bytes:
+    """Compact JSON — whitespace counts against the 1 KB limit."""
+    return json.dumps(
+        {"metadataAttributes": attributes}, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def fit_sidecar(attributes: dict, label: str = "") -> tuple[dict, bytes]:
+    """Return (attributes, payload) guaranteed to be <= SIDECAR_MAX_BYTES.
+
+    Trim order, least valuable first: drop countries from the end of
+    `related_countries` (it is the only unbounded field — a Section 301/232
+    message can name 40+ countries), then shorten subject fields, then drop
+    `related_countries` altogether. Everything else is fixed-size identity/date
+    data the UI depends on and is never touched.
+    """
+    attrs = dict(attributes)
+    payload = sidecar_payload(attrs)
+    if len(payload) <= SIDECAR_MAX_BYTES:
+        return attrs, payload
+    original = len(payload)
+
+    countries = list(attrs.get("related_countries") or [])
+    while countries and len(payload) > SIDECAR_MAX_BYTES:
+        countries.pop()
+        attrs["related_countries"] = countries
+        payload = sidecar_payload(attrs)
+    if len(payload) > SIDECAR_MAX_BYTES:
+        for key in ("subject", "parent_subject"):
+            if key in attrs:
+                attrs[key] = attrs[key][:_TRIMMED_SUBJECT_MAX]
+        payload = sidecar_payload(attrs)
+    if len(payload) > SIDECAR_MAX_BYTES or not countries:
+        attrs.pop("related_countries", None)
+        payload = sidecar_payload(attrs)
+
+    kept = len(attrs.get("related_countries") or [])
+    logger.warning(
+        "Sidecar %s was %d B (limit %d) — trimmed to %d B, related_countries %d -> %d",
+        label, original, SIDECAR_MAX_BYTES, len(payload),
+        len(attributes.get("related_countries") or []), kept,
+    )
+    return attrs, payload
+
+
 def write_sidecar(document_path: str, attributes: dict) -> str:
     """Write `<document_path>.metadata.json` next to the document."""
     sidecar_path = f"{document_path}.metadata.json"
-    payload = json.dumps({"metadataAttributes": attributes}, ensure_ascii=False, indent=2)
-    if len(payload.encode("utf-8")) > _SIDECAR_MAX_BYTES:
-        # Only free-text fields can realistically overflow — trim and retry.
-        logger.warning("Sidecar over 10KB for %s — trimming text fields", document_path)
-        for key in ("subject", "parent_subject"):
-            if key in attributes:
-                attributes[key] = attributes[key][:200]
-        payload = json.dumps({"metadataAttributes": attributes}, ensure_ascii=False, indent=2)
-    with open(sidecar_path, "w", encoding="utf-8") as f:
+    _, payload = fit_sidecar(attributes, label=document_path)
+    with open(sidecar_path, "wb") as f:
         f.write(payload)
     return sidecar_path
