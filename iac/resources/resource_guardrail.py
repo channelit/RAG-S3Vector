@@ -65,10 +65,8 @@ def create_guardrail(scope: Construct, config: dict) -> dict:
                     name="Politics",
                     type="DENY",
                     definition=(
-                        "Any discussion of politics or political figures: politicians, elected or "
-                        "appointed officials in their political capacity, candidates, political parties, "
-                        "elections, campaigns, legislation debates, partisan opinions, or asking for or "
-                        "giving views on political leaders, administrations, or policies as politics."
+                        "Politics or political figures: politicians, candidates, parties, elections, "
+                        "campaigns, partisan debate, or opinions on political leaders or administrations."
                     ),
                     examples=[
                         "What do you think of the President?",
@@ -82,9 +80,8 @@ def create_guardrail(scope: Construct, config: dict) -> dict:
                     name="Impoliteness",
                     type="DENY",
                     definition=(
-                        "Rude, hostile, demeaning, threatening, or otherwise disrespectful language "
-                        "directed at the assistant, CBP, its staff, or any person, including demands "
-                        "phrased with contempt or abuse."
+                        "Rude, hostile, demeaning, threatening, or disrespectful language toward the "
+                        "assistant, CBP, its staff, or any person, including contemptuous demands."
                     ),
                     examples=[
                         "Answer me now, you useless bot.",
