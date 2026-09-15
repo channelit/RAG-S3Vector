@@ -1,0 +1,156 @@
+# Bedrock Guardrail policy — base config, deep-merged with config/<env>.yml.
+#
+# Requirements:
+#   1. Politics   -> denied topic "Politics"                 (denied_topics)
+#   2. Profanity  -> AWS-managed PROFANITY word list         (word_filters)
+#   3. Rudeness   -> denied topic "Rudeness" + INSULTS filter (denied_topics, content_filters)
+#
+# Everything else here (baseline harmful-content filters, PII) mirrors the CDK
+# guardrail in iac/resources/resource_guardrail.py so both give the same answers.
+
+name: cits-csms-guardrail
+description: >-
+  Blocks politics/political figures, profanity, and rude or hostile content
+  (question or answer); replies with a fixed message.
+
+# One user-facing message for every intervention (input and output).
+blocked_input_message: "Sorry we cannot answer this question."
+blocked_output_message: "Sorry we cannot answer this question."
+
+# ---------------------------------------------------------------------------
+# Denied topics (checked on the question and the answer).
+# Bedrock limits: definition <= 200 chars, name <= 100 chars, each example <= 100 chars.
+# ---------------------------------------------------------------------------
+denied_topics:
+  # Requirement 1 — politics
+  - name: Politics
+    definition: >-
+      Politics or political figures: politicians, candidates, parties, elections,
+      campaigns, partisan debate, or opinions on political leaders or administrations.
+    examples:
+      - "What do you think of the President?"
+      - "Which party is better for trade policy?"
+      - "Is the current administration handling tariffs correctly?"
+      - "Who should I vote for in the next election?"
+      - "Give me your opinion on the Secretary of Homeland Security."
+
+  # Requirement 3 — rudeness
+  - name: Rudeness
+    definition: >-
+      Rude, hostile, demeaning, threatening, or disrespectful language toward the
+      assistant, CBP, its staff, or any person, including contemptuous demands.
+    examples:
+      - "Answer me now, you useless bot."
+      - "CBP officers are idiots, why do they keep changing the rules?"
+      - "Stop wasting my time and just tell me the damn answer."
+      - "You people are incompetent."
+
+# ---------------------------------------------------------------------------
+# Word filters (question and answer).
+# ---------------------------------------------------------------------------
+word_filters:
+  # Requirement 2 — profanity (AWS-managed list; the only managed list Bedrock offers)
+  managed_lists:
+    - PROFANITY
+  # Extra words/phrases to block, matched case-insensitively. Max 10,000 entries.
+  custom_words: []
+
+# ---------------------------------------------------------------------------
+# Content filters. Strength: NONE | LOW | MEDIUM | HIGH.
+# INSULTS is the backstop for requirement 3 (rudeness) on the answer side.
+# ---------------------------------------------------------------------------
+content_filters:
+  - type: INSULTS
+    input: HIGH
+    output: HIGH
+  - type: HATE
+    input: HIGH
+    output: HIGH
+  - type: SEXUAL
+    input: HIGH
+    output: HIGH
+  - type: VIOLENCE
+    input: HIGH
+    output: HIGH
+  - type: MISCONDUCT
+    input: HIGH
+    output: HIGH
+  # Jailbreak / prompt-injection attempts: input only.
+  - type: PROMPT_ATTACK
+    input: HIGH
+    output: NONE
+
+# ---------------------------------------------------------------------------
+# Sensitive information (PII). Set `enabled: false` to drop the policy entirely.
+# Entities are strings (use default_action) or {type, action} mappings.
+# Actions: BLOCK | ANONYMIZE. URL is intentionally left out — CSMS content is
+# link-heavy and blocking it would reject nearly every answer.
+# ---------------------------------------------------------------------------
+pii:
+  enabled: true
+  default_action: BLOCK
+  entities:
+    - NAME
+    - AGE
+    - ADDRESS
+    - EMAIL
+    - PHONE
+    - USERNAME
+    - PASSWORD
+    - PIN
+    - DRIVER_ID
+    - LICENSE_PLATE
+    - VEHICLE_IDENTIFICATION_NUMBER
+    - IP_ADDRESS
+    - MAC_ADDRESS
+    - CREDIT_DEBIT_CARD_NUMBER
+    - CREDIT_DEBIT_CARD_CVV
+    - CREDIT_DEBIT_CARD_EXPIRY
+    - INTERNATIONAL_BANK_ACCOUNT_NUMBER
+    - SWIFT_CODE
+    - US_BANK_ACCOUNT_NUMBER
+    - US_BANK_ROUTING_NUMBER
+    - US_INDIVIDUAL_TAX_IDENTIFICATION_NUMBER
+    - US_PASSPORT_NUMBER
+    - US_SOCIAL_SECURITY_NUMBER
+    - CA_HEALTH_NUMBER
+    - CA_SOCIAL_INSURANCE_NUMBER
+    - UK_NATIONAL_HEALTH_SERVICE_NUMBER
+    - UK_NATIONAL_INSURANCE_NUMBER
+    - UK_UNIQUE_TAXPAYER_REFERENCE_NUMBER
+    - AWS_ACCESS_KEY
+    - AWS_SECRET_KEY
+  # Custom patterns: {name, pattern, action, description?}
+  regexes: []
+
+tags:
+  APP: rag
+  ORG: CITS
+  ManagedBy: infra/guardrail.py
+
+# ---------------------------------------------------------------------------
+# Smoke tests for `guardrail.py test` (runs ApplyGuardrail against the deployed
+# guardrail). expect: BLOCK | ALLOW. source defaults to INPUT.
+# ---------------------------------------------------------------------------
+tests:
+  # politics
+  - text: "Who should I vote for in the next election?"
+    expect: BLOCK
+  - text: "Is the current administration handling tariffs correctly?"
+    expect: BLOCK
+  # profanity
+  - text: "What the fuck is an ACE entry summary?"
+    expect: BLOCK
+  # rudeness
+  - text: "Answer me now, you useless bot."
+    expect: BLOCK
+  - text: "CBP officers are idiots, why do they keep changing the rules?"
+    expect: BLOCK
+  # normal CSMS questions must pass
+  - text: "What is the filing deadline for an ISF?"
+    expect: ALLOW
+  - text: "Summarize the latest CSMS message about Section 232 steel tariffs."
+    expect: ALLOW
+  - text: "Please see CSMS #12345678 for details on ACE cargo release."
+    expect: ALLOW
+    source: OUTPUT

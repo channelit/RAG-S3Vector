@@ -1,0 +1,7 @@
+name: cits-csms-guardrail
+
+aws:
+  region: us-east-1
+
+tags:
+  ENV: prod

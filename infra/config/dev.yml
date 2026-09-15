@@ -1,0 +1,10 @@
+# Per-environment overrides, deep-merged onto guardrail.yml.
+# Lists replace the base list wholesale (they are not appended).
+name: cits-csms-guardrail-dev
+
+aws:
+  region: us-east-1      # optional; falls back to --region / AWS_REGION / profile default
+  # profile: my-profile  # optional; falls back to --profile / AWS_PROFILE
+
+tags:
+  ENV: dev
