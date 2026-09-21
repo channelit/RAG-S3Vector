@@ -25,7 +25,10 @@ def create_fargate_resources(
     generating with `knowledge_base.generation_model_id` and applying the
     stack's guardrail. The container env mirrors app/ui/container/.env.local.example
     (KNOWLEDGE_BASE_ID, BEDROCK_MODEL_ARN, GUARDRAIL_ID, GUARDRAIL_VERSION) and
-    the task role is scoped to exactly those three resources.
+    the task role is scoped to exactly those three resources. The ALTCHA
+    captcha is served by the backend itself and is on by default, but with more
+    than one task ALTCHA_HMAC_KEY must be shared — a secret, so inject it via
+    Secrets Manager / `secrets=` rather than `environment=`; not wired here.
     """
     project_name = config["project_name"]
     region, account = scope.region, scope.account

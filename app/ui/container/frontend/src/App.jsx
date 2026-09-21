@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import 'altcha' // registers the <altcha-widget> web component
 import flagImg from '@uswds/uswds/img/us_flag_small.png'
 import dotGovImg from '@uswds/uswds/img/icon-dot-gov.svg'
 import httpsImg from '@uswds/uswds/img/icon-https.svg'
@@ -265,6 +266,44 @@ function SiteHeader() {
   )
 }
 
+/** ALTCHA proof-of-work captcha. The backend decides whether it is on
+ *  (/api/config → altcha.enabled) and the widget fetches challenges from the
+ *  backend's own same-origin relative path (altcha.challenge_url), where the
+ *  backend creates them itself with the altcha library. Each solved payload is
+ *  accepted once, so the widget is reset after every submission. */
+function AltchaCaptcha({ challengeUrl, onPayload, resetKey }) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onStateChange = (ev) => {
+      const { state, payload } = ev.detail || {}
+      onPayload(state === 'verified' && payload ? payload : null)
+    }
+    el.addEventListener('statechange', onStateChange)
+    return () => el.removeEventListener('statechange', onStateChange)
+  }, [onPayload])
+
+  useEffect(() => {
+    // Drop the used payload after each query so the next one gets a fresh challenge
+    if (resetKey > 0 && typeof ref.current?.reset === 'function') ref.current.reset()
+  }, [resetKey])
+
+  return (
+    <div className="usa-form-group margin-top-3">
+      <altcha-widget
+        ref={ref}
+        id="altcha-widget"
+        challenge={challengeUrl}
+        name="altcha"
+        type="checkbox"
+        configuration='{"hideFooter": true, "hideLogo": true}'
+      ></altcha-widget>
+    </div>
+  )
+}
+
 function App() {
   const [query, setQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -273,9 +312,29 @@ function App() {
   const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // null until /api/config answers; then {enabled, challenge_url}
+  const [altchaConfig, setAltchaConfig] = useState(null)
+  const [altchaPayload, setAltchaPayload] = useState(null)
+  const [altchaResetKey, setAltchaResetKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/config')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`))))
+      .then((data) => { if (!cancelled) setAltchaConfig(data.altcha ?? { enabled: false }) })
+      .catch((e) => {
+        if (cancelled) return
+        setAltchaConfig({ enabled: false })
+        setError(`Could not load site configuration (${e.message})`)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  const captchaRequired = altchaConfig?.enabled === true
+  const captchaPending = altchaConfig === null || (captchaRequired && !altchaPayload)
 
   const ask = async () => {
-    if (!query.trim()) return
+    if (!query.trim() || captchaPending) return
     setLoading(true)
     setError('')
     setAnswer('')
@@ -284,6 +343,7 @@ function App() {
     const body = { query }
     if (dateFrom) body.date_from = dateFrom
     if (dateTo) body.date_to = dateTo
+    if (captchaRequired) body.altcha = altchaPayload
 
     try {
       const res = await fetch('/api/query', {
@@ -302,6 +362,11 @@ function App() {
       setError(e.message)
     } finally {
       setLoading(false)
+      if (captchaRequired) {
+        // The server accepts each solved challenge once; require a fresh one
+        setAltchaPayload(null)
+        setAltchaResetKey((k) => k + 1)
+      }
     }
   }
 
@@ -382,14 +447,27 @@ function App() {
                 </div>
               </fieldset>
 
+              {captchaRequired && (
+                <AltchaCaptcha
+                  challengeUrl={altchaConfig.challenge_url}
+                  onPayload={setAltchaPayload}
+                  resetKey={altchaResetKey}
+                />
+              )}
+
               <button
                 className="usa-button margin-top-3"
                 onClick={ask}
-                disabled={loading}
+                disabled={loading || captchaPending}
                 type="button"
               >
                 {loading ? 'Searching…' : 'Submit Query'}
               </button>
+              {captchaRequired && !altchaPayload && !loading && (
+                <span className="usa-hint display-block margin-top-1">
+                  Complete the verification above to enable the Submit button.
+                </span>
+              )}
 
               {error && (
                 <div className="usa-alert usa-alert--error margin-top-4" role="alert">

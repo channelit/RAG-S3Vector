@@ -6,19 +6,29 @@ metadata filter — the attribute the scraper writes into each document's
 .metadata.json sidecar) and Bedrock writes the answer from them with the
 configured model, applying the guardrail when one is set. Sources come from
 the response citations.
+
+ALTCHA captcha, self-hosted: this backend creates the challenges itself with
+the `altcha` library and serves them at the relative path /api/altcha/challenge
+(same origin as the UI — there is no separate ALTCHA server). Every query must
+carry a solved payload, verified with the same library and HMAC key.
 """
 
+import base64
+import json
 import logging
 import os
 import re
+import secrets
+import threading
+import time
 from urllib.parse import unquote, urlparse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -53,6 +63,22 @@ GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID") or None
 GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
 NUM_RESULTS = int(os.environ.get("KB_NUM_RESULTS", "8"))
 
+# ALTCHA proof-of-work captcha, served by this backend with the `altcha` library.
+# On unless ALTCHA_ENABLED=false. ALTCHA_HMAC_KEY signs and verifies challenges;
+# without one a random per-process key is used, which only works for a single
+# worker/replica (a challenge must be verified by the process that issued it) and
+# invalidates outstanding challenges on restart.
+ALTCHA_ENABLED = os.environ.get("ALTCHA_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+ALTCHA_HMAC_KEY = os.environ.get("ALTCHA_HMAC_KEY") or None
+if ALTCHA_ENABLED and not ALTCHA_HMAC_KEY:
+    ALTCHA_HMAC_KEY = secrets.token_hex(32)
+    logger.warning("ALTCHA_HMAC_KEY not set: using a random per-process key (single worker only)")
+ALTCHA_ALGORITHM = os.environ.get("ALTCHA_ALGORITHM", "PBKDF2/SHA-256")
+ALTCHA_COST = int(os.environ.get("ALTCHA_COST", "5000"))
+ALTCHA_EXPIRES_SECONDS = int(os.environ.get("ALTCHA_EXPIRES_SECONDS", "300"))
+# Relative path the widget fetches challenges from (same origin as the UI)
+ALTCHA_WIDGET_CHALLENGE_PATH = "/api/altcha/challenge"
+
 # Public CSMS bulletin URL: the numeric message ID rendered in lowercase hex
 # (CSMS # 69302472 -> .../bulletins/42178c8). Document locations reported in
 # citations look like .../csms/<id>/csms-<id>.txt or .../csms/<id>/attachments/<file>,
@@ -69,6 +95,67 @@ class QueryRequest(BaseModel):
     query: str
     date_from: str | None = None
     date_to: str | None = None
+    altcha: str | None = None  # solved ALTCHA payload (base64 JSON), required when enabled
+
+
+class _AltchaReplayGuard:
+    """Each solved challenge is accepted once. Signatures are remembered until the
+    challenge itself would have expired, so the set stays bounded."""
+
+    def __init__(self):
+        self._seen: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def first_use(self, signature: str, expires_at: float) -> bool:
+        now = time.time()
+        with self._lock:
+            if len(self._seen) > 1000:
+                self._seen = {k: v for k, v in self._seen.items() if v > now}
+            if signature in self._seen:
+                return False
+            self._seen[signature] = expires_at
+            return True
+
+
+_altcha_replay_guard = _AltchaReplayGuard()
+
+
+def _altcha_create_challenge() -> dict:
+    import altcha  # noqa: PLC0415 — only needed when ALTCHA is enabled
+
+    challenge = altcha.create_challenge(
+        ALTCHA_ALGORITHM,
+        ALTCHA_COST,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=ALTCHA_EXPIRES_SECONDS),
+        hmac_secret=ALTCHA_HMAC_KEY,
+    )
+    return challenge.to_dict()
+
+
+def _altcha_verify(payload: str) -> None:
+    """Verify signature, solution and expiry with ALTCHA_HMAC_KEY, then enforce single use."""
+    import altcha  # noqa: PLC0415
+
+    result = altcha.verify_solution(payload, ALTCHA_HMAC_KEY)
+    if not result.verified:
+        reason = "expired" if result.expired else (result.error or "invalid")
+        logger.warning("ALTCHA verification failed: %s", reason)
+        raise HTTPException(status_code=403, detail=f"Captcha verification failed ({reason}); please try again")
+
+    # verify_solution already parsed this payload successfully, so the shape is known
+    challenge = json.loads(base64.b64decode(payload))["challenge"]
+    expires_at = challenge["parameters"].get("expiresAt") or (time.time() + ALTCHA_EXPIRES_SECONDS)
+    if not _altcha_replay_guard.first_use(challenge["signature"], float(expires_at)):
+        logger.warning("ALTCHA payload replayed")
+        raise HTTPException(status_code=403, detail="Captcha already used; please verify again")
+
+
+def _altcha_require_valid(payload: str | None) -> None:
+    if not ALTCHA_ENABLED:
+        return
+    if not payload:
+        raise HTTPException(status_code=400, detail="Captcha verification is required")
+    _altcha_verify(payload)
 
 
 def _date_numeric(value: str, field: str) -> int:
@@ -157,10 +244,30 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/config")
+def config():
+    """Runtime settings the frontend needs before it can submit a query."""
+    return {
+        "altcha": {
+            "enabled": ALTCHA_ENABLED,
+            "challenge_url": ALTCHA_WIDGET_CHALLENGE_PATH if ALTCHA_ENABLED else None,
+        }
+    }
+
+
+@app.get(ALTCHA_WIDGET_CHALLENGE_PATH)
+def altcha_challenge():
+    """Fresh challenge for the widget, created and signed here."""
+    if not ALTCHA_ENABLED:
+        raise HTTPException(status_code=404, detail="Captcha is not enabled")
+    return JSONResponse(_altcha_create_challenge(), headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/query")
 def query(req: QueryRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="query is required")
+    _altcha_require_valid(req.altcha)
 
     from_num = _date_numeric(req.date_from, "date_from") if req.date_from else None
     to_num = _date_numeric(req.date_to, "date_to") if req.date_to else None
