@@ -9,11 +9,16 @@ the response citations.
 
 ALTCHA captcha, self-hosted: this backend creates the challenges itself with
 the `altcha` library and serves them at the relative path /api/altcha/challenge
-(same origin as the UI — there is no separate ALTCHA server). Every query must
-carry a solved payload, verified with the same library and HMAC key.
+(same origin as the UI — there is no separate ALTCHA server). The widget is
+solved once per browser session: POST /api/altcha/verify checks the solved
+payload with the same library and HMAC key and exchanges it for a signed,
+time-limited session token, which every /api/query then carries instead of a
+freshly solved captcha.
 """
 
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -76,8 +81,11 @@ if ALTCHA_ENABLED and not ALTCHA_HMAC_KEY:
 ALTCHA_ALGORITHM = os.environ.get("ALTCHA_ALGORITHM", "PBKDF2/SHA-256")
 ALTCHA_COST = int(os.environ.get("ALTCHA_COST", "5000"))
 ALTCHA_EXPIRES_SECONDS = int(os.environ.get("ALTCHA_EXPIRES_SECONDS", "300"))
-# Relative path the widget fetches challenges from (same origin as the UI)
+# How long one solved captcha stays valid for queries (the session token's lifetime)
+ALTCHA_SESSION_SECONDS = int(os.environ.get("ALTCHA_SESSION_SECONDS", "3600"))
+# Relative paths the frontend uses (same origin as the UI)
 ALTCHA_WIDGET_CHALLENGE_PATH = "/api/altcha/challenge"
+ALTCHA_VERIFY_PATH = "/api/altcha/verify"
 
 # Public CSMS bulletin URL: the numeric message ID rendered in lowercase hex
 # (CSMS # 69302472 -> .../bulletins/42178c8). Document locations reported in
@@ -95,7 +103,14 @@ class QueryRequest(BaseModel):
     query: str
     date_from: str | None = None
     date_to: str | None = None
-    altcha: str | None = None  # solved ALTCHA payload (base64 JSON), required when enabled
+    # Session token from /api/altcha/verify — what the UI sends. A freshly solved
+    # ALTCHA payload (base64 JSON) is also accepted in `altcha`, for direct API use.
+    captcha_token: str | None = None
+    altcha: str | None = None
+
+
+class AltchaVerifyRequest(BaseModel):
+    altcha: str  # solved ALTCHA payload (base64 JSON) from the widget
 
 
 class _AltchaReplayGuard:
@@ -150,9 +165,39 @@ def _altcha_verify(payload: str) -> None:
         raise HTTPException(status_code=403, detail="Captcha already used; please verify again")
 
 
-def _altcha_require_valid(payload: str | None) -> None:
+def _session_signature(expires_at: int, nonce: str) -> str:
+    message = f"altcha-session:{expires_at}:{nonce}".encode()
+    return hmac.new(ALTCHA_HMAC_KEY.encode(), message, hashlib.sha256).hexdigest()
+
+
+def _altcha_issue_session_token() -> tuple[str, int]:
+    """Stateless, HMAC-signed token ("<expires_at>.<nonce>.<signature>") that stands
+    in for a solved captcha until it expires. Signed with ALTCHA_HMAC_KEY, so any
+    replica sharing the key can verify it."""
+    expires_at = int(time.time()) + ALTCHA_SESSION_SECONDS
+    nonce = secrets.token_hex(16)
+    return f"{expires_at}.{nonce}.{_session_signature(expires_at, nonce)}", expires_at
+
+
+def _altcha_session_token_valid(token: str) -> bool:
+    try:
+        expires_str, nonce, signature = token.split(".")
+        expires_at = int(expires_str)
+    except ValueError:
+        return False
+    if not hmac.compare_digest(signature, _session_signature(expires_at, nonce)):
+        return False
+    return expires_at > time.time()
+
+
+def _altcha_require_valid(token: str | None, payload: str | None) -> None:
     if not ALTCHA_ENABLED:
         return
+    if token:
+        if _altcha_session_token_valid(token):
+            return
+        logger.warning("ALTCHA session token invalid or expired")
+        raise HTTPException(status_code=403, detail="Captcha session expired; please verify again")
     if not payload:
         raise HTTPException(status_code=400, detail="Captcha verification is required")
     _altcha_verify(payload)
@@ -251,6 +296,7 @@ def config():
         "altcha": {
             "enabled": ALTCHA_ENABLED,
             "challenge_url": ALTCHA_WIDGET_CHALLENGE_PATH if ALTCHA_ENABLED else None,
+            "verify_url": ALTCHA_VERIFY_PATH if ALTCHA_ENABLED else None,
         }
     }
 
@@ -263,11 +309,25 @@ def altcha_challenge():
     return JSONResponse(_altcha_create_challenge(), headers={"Cache-Control": "no-store"})
 
 
+@app.post(ALTCHA_VERIFY_PATH)
+def altcha_verify(req: AltchaVerifyRequest):
+    """Exchange a solved captcha (accepted once) for a session token that covers
+    every query for ALTCHA_SESSION_SECONDS, so the user solves the widget only once."""
+    if not ALTCHA_ENABLED:
+        raise HTTPException(status_code=404, detail="Captcha is not enabled")
+    _altcha_verify(req.altcha)
+    token, expires_at = _altcha_issue_session_token()
+    return JSONResponse(
+        {"token": token, "expires_at": expires_at, "expires_in": ALTCHA_SESSION_SECONDS},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.post("/api/query")
 def query(req: QueryRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="query is required")
-    _altcha_require_valid(req.altcha)
+    _altcha_require_valid(req.captcha_token, req.altcha)
 
     from_num = _date_numeric(req.date_from, "date_from") if req.date_from else None
     to_num = _date_numeric(req.date_to, "date_to") if req.date_to else None

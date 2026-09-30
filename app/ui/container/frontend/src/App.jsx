@@ -269,8 +269,9 @@ function SiteHeader() {
 /** ALTCHA proof-of-work captcha. The backend decides whether it is on
  *  (/api/config → altcha.enabled) and the widget fetches challenges from the
  *  backend's own same-origin relative path (altcha.challenge_url), where the
- *  backend creates them itself with the altcha library. Each solved payload is
- *  accepted once, so the widget is reset after every submission. */
+ *  backend creates them itself with the altcha library. The solved payload is
+ *  exchanged once for a session token (see App), so the widget is only shown
+ *  until the first successful verification. */
 function AltchaCaptcha({ challengeUrl, onPayload, resetKey }) {
   const ref = useRef(null)
 
@@ -286,7 +287,7 @@ function AltchaCaptcha({ challengeUrl, onPayload, resetKey }) {
   }, [onPayload])
 
   useEffect(() => {
-    // Drop the used payload after each query so the next one gets a fresh challenge
+    // Reset after a failed token exchange so the user can solve a fresh challenge
     if (resetKey > 0 && typeof ref.current?.reset === 'function') ref.current.reset()
   }, [resetKey])
 
@@ -304,6 +305,26 @@ function AltchaCaptcha({ challengeUrl, onPayload, resetKey }) {
   )
 }
 
+// The captcha session token lives in sessionStorage so one solve covers the
+// whole browser tab session, reloads included. Storage can throw (private mode,
+// blocked site data); the in-memory state still works then.
+const CAPTCHA_TOKEN_KEY = 'altchaSessionToken'
+
+function loadCaptchaToken() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(CAPTCHA_TOKEN_KEY) || 'null')
+    if (saved?.token && saved.expires_at * 1000 > Date.now() + 30_000) return saved
+  } catch { /* ignore */ }
+  return null
+}
+
+function saveCaptchaToken(value) {
+  try {
+    if (value) sessionStorage.setItem(CAPTCHA_TOKEN_KEY, JSON.stringify(value))
+    else sessionStorage.removeItem(CAPTCHA_TOKEN_KEY)
+  } catch { /* ignore */ }
+}
+
 function App() {
   const [query, setQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -314,8 +335,37 @@ function App() {
   const [error, setError] = useState('')
   // null until /api/config answers; then {enabled, challenge_url}
   const [altchaConfig, setAltchaConfig] = useState(null)
-  const [altchaPayload, setAltchaPayload] = useState(null)
+  // {token, expires_at} from /api/altcha/verify; covers every query until it expires
+  const [captchaToken, setCaptchaTokenState] = useState(loadCaptchaToken)
+  const [captchaVerifying, setCaptchaVerifying] = useState(false)
   const [altchaResetKey, setAltchaResetKey] = useState(0)
+
+  const setCaptchaToken = (value) => {
+    saveCaptchaToken(value)
+    setCaptchaTokenState(value)
+  }
+
+  // Widget solved: trade the one-time payload for a session token
+  const onAltchaPayload = async (payload) => {
+    if (!payload || !altchaConfig?.verify_url) return
+    setCaptchaVerifying(true)
+    try {
+      const res = await fetch(altchaConfig.verify_url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ altcha: payload }),
+      })
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`)
+      const data = await res.json()
+      setCaptchaToken({ token: data.token, expires_at: data.expires_at })
+      setError('')
+    } catch (e) {
+      setError(`Captcha verification failed (${e.message})`)
+      setAltchaResetKey((k) => k + 1)
+    } finally {
+      setCaptchaVerifying(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -331,7 +381,8 @@ function App() {
   }, [])
 
   const captchaRequired = altchaConfig?.enabled === true
-  const captchaPending = altchaConfig === null || (captchaRequired && !altchaPayload)
+  const captchaValid = !!captchaToken && captchaToken.expires_at * 1000 > Date.now()
+  const captchaPending = altchaConfig === null || (captchaRequired && !captchaValid)
 
   const ask = async () => {
     if (!query.trim() || captchaPending) return
@@ -343,7 +394,7 @@ function App() {
     const body = { query }
     if (dateFrom) body.date_from = dateFrom
     if (dateTo) body.date_to = dateTo
-    if (captchaRequired) body.altcha = altchaPayload
+    if (captchaRequired) body.captcha_token = captchaToken.token
 
     try {
       const res = await fetch('/api/query', {
@@ -353,6 +404,8 @@ function App() {
       })
       if (!res.ok) {
         const text = await res.text()
+        // Session expired or rejected: show the captcha again
+        if (captchaRequired && (res.status === 403 || res.status === 400)) setCaptchaToken(null)
         throw new Error(`${res.status}: ${text}`)
       }
       const data = await res.json()
@@ -362,11 +415,6 @@ function App() {
       setError(e.message)
     } finally {
       setLoading(false)
-      if (captchaRequired) {
-        // The server accepts each solved challenge once; require a fresh one
-        setAltchaPayload(null)
-        setAltchaResetKey((k) => k + 1)
-      }
     }
   }
 
@@ -387,9 +435,9 @@ function App() {
           <div className="grid-row grid-gap">
             <div className="tablet:grid-col-10 tablet:grid-offset-1 desktop:grid-col-8 desktop:grid-offset-2">
 
-              <h1 className="font-heading-xl margin-bottom-2">Document Query</h1>
+              <h1 className="font-heading-xl margin-bottom-2">CSMS AI Assistant</h1>
               <p className="usa-intro">
-                Search ingested CSMS documents using natural language. Results are filtered through Bedrock Guardrails and sourced exclusively from uploaded content.
+                Search CSMS documents using natural language. Results are filtered and sourced exclusively from uploaded content.
               </p>
 
               <div className="usa-form-group margin-top-4">
@@ -447,10 +495,10 @@ function App() {
                 </div>
               </fieldset>
 
-              {captchaRequired && (
+              {captchaRequired && !captchaValid && (
                 <AltchaCaptcha
                   challengeUrl={altchaConfig.challenge_url}
-                  onPayload={setAltchaPayload}
+                  onPayload={onAltchaPayload}
                   resetKey={altchaResetKey}
                 />
               )}
@@ -458,12 +506,12 @@ function App() {
               <button
                 className="usa-button margin-top-3"
                 onClick={ask}
-                disabled={loading || captchaPending}
+                disabled={loading || captchaPending || captchaVerifying}
                 type="button"
               >
                 {loading ? 'Searching…' : 'Submit Query'}
               </button>
-              {captchaRequired && !altchaPayload && !loading && (
+              {captchaRequired && !captchaValid && !loading && (
                 <span className="usa-hint display-block margin-top-1">
                   Complete the verification above to enable the Submit button.
                 </span>
