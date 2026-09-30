@@ -33,7 +33,7 @@ import json
 import os
 import sys
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -159,7 +159,7 @@ def s3_objects_not_in_kb(s3, source_bucket: str, prefixes: list[str], docs: list
                 sizes[obj["Key"]] = obj["Size"]
     missing = []
     for key, size in sorted(sizes.items()):
-        if key.endswith(SIDECAR_SUFFIX) or key.endswith("/"):
+        if key.endswith((SIDECAR_SUFFIX, "/")):
             continue
         uri = f"s3://{source_bucket}/{key}"
         if uri in known:
@@ -353,18 +353,18 @@ def write_csv(path: Path | None, docs: list[DocReport]) -> None:
     sidecar_keys = sorted({k for d in docs for k in d.sidecar})
     head = ["uri", "status", "status_reason", "updated_at", "sidecar_found", "sidecar_bytes",
             "chunks", "metadata_ok", "missing_keys", "mismatched"] + [f"meta.{k}" for k in sidecar_keys]
-    out = open(path, "w", newline="") if path else sys.stdout
-    try:
-        writer = csv.writer(out)
-        writer.writerow(head)
-        for d in docs:
-            writer.writerow([
-                d.uri, d.status, d.status_reason, d.updated_at, d.sidecar_found, d.sidecar_bytes,
-                d.chunks, d.metadata_ok, ";".join(d.missing_keys), json.dumps(d.mismatched) if d.mismatched else "",
-            ] + [display(d.sidecar.get(k, "")) for k in sidecar_keys])
-    finally:
-        if path:
-            out.close()
+    rows = [
+        [
+            d.uri, d.status, d.status_reason, d.updated_at, d.sidecar_found, d.sidecar_bytes,
+            d.chunks, d.metadata_ok, ";".join(d.missing_keys), json.dumps(d.mismatched) if d.mismatched else "",
+        ] + [display(d.sidecar.get(k, "")) for k in sidecar_keys]
+        for d in docs
+    ]
+    if path:
+        with open(path, "w", newline="") as out:
+            csv.writer(out).writerows([head, *rows])
+    else:
+        csv.writer(sys.stdout).writerows([head, *rows])
 
 
 # ----------------------------------------------------------------------------- main

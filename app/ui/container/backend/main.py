@@ -26,9 +26,9 @@ import re
 import secrets
 import threading
 import time
-from urllib.parse import unquote, urlparse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -136,7 +136,7 @@ _altcha_replay_guard = _AltchaReplayGuard()
 
 
 def _altcha_create_challenge() -> dict:
-    import altcha  # noqa: PLC0415 — only needed when ALTCHA is enabled
+    import altcha  # only needed when ALTCHA is enabled
 
     challenge = altcha.create_challenge(
         ALTCHA_ALGORITHM,
@@ -149,7 +149,7 @@ def _altcha_create_challenge() -> dict:
 
 def _altcha_verify(payload: str) -> None:
     """Verify signature, solution and expiry with ALTCHA_HMAC_KEY, then enforce single use."""
-    import altcha  # noqa: PLC0415
+    import altcha
 
     result = altcha.verify_solution(payload, ALTCHA_HMAC_KEY)
     if not result.verified:
@@ -206,7 +206,7 @@ def _altcha_require_valid(token: str | None, payload: str | None) -> None:
 def _date_numeric(value: str, field: str) -> int:
     # "2026-07-21" -> 20260721, matching the scraper's date_numeric metadata attribute
     try:
-        return int(datetime.strptime(value, "%Y-%m-%d").strftime("%Y%m%d"))
+        return int(datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc).strftime("%Y%m%d"))
     except ValueError:
         raise HTTPException(status_code=400, detail=f"{field} must be a valid YYYY-MM-DD date")
 
