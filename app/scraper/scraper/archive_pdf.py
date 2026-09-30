@@ -162,7 +162,7 @@ def refs_from_archive_pdf(client: WebClient, source: str) -> list[MessageRef]:
                         continue
                     uri = obj["/A"].get("/URI")
                 except Exception as exc:  # malformed annotation
-                    logger.debug("Skipping annotation: %s", exc)
+                    logger.debug("Skipping annotation: %s", exc, exc_info=True)
                     continue
                 if not uri:
                     continue

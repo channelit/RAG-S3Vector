@@ -1,14 +1,14 @@
 import aws_cdk as cdk
 from aws_cdk import Stack
-from constructs import Construct
-
 from config import load_config
+from constructs import Construct
 from resources.resource_guardrail import create_guardrail
 from resources.resource_iam import create_lambda_role
 from resources.resource_knowledge_base import create_knowledge_base
 from resources.resource_lambda import create_lambda_functions
 from resources.resource_s3 import create_document_bucket
 from resources.resource_s3_vectors import create_vector_resources
+
 # from resources.resource_fargate import create_fargate_resources  # UI runs locally via docker-compose
 from resources.resource_ui import create_ui_resources
 

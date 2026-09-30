@@ -1,7 +1,7 @@
-from aws_cdk import RemovalPolicy, aws_s3 as s3
-from constructs import Construct
-
+from aws_cdk import RemovalPolicy
+from aws_cdk import aws_s3 as s3
 from config import resource_name
+from constructs import Construct
 
 
 def create_document_bucket(scope: Construct, config: dict) -> s3.Bucket:

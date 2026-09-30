@@ -19,7 +19,13 @@ from datetime import date, timezone
 from .bulletin import Bulletin, fetch_bulletin, parse_date_hint
 from .config import Settings
 from .countries import detect_countries
-from .csms import MessageRef, bulletin_url_for_id, canonical_bulletin_url, id_from_bulletin_url, slugify
+from .csms import (
+    MessageRef,
+    bulletin_url_for_id,
+    canonical_bulletin_url,
+    id_from_bulletin_url,
+    slugify,
+)
 from .kb_index import SIDECAR_SUFFIX, KBDocument, KBIndexer
 from .kb_metadata import attachment_attributes, message_attributes, write_sidecar
 from .uploader import S3Uploader
@@ -91,9 +97,7 @@ class Pipeline:
             return True  # unknown date — do not exclude
         if self._since and day < self._since:
             return False
-        if self._until and day > self._until:
-            return False
-        return True
+        return not (self._until and day > self._until)
 
     def _hint_date(self, ref: MessageRef) -> date | None:
         dt = parse_date_hint(ref.pub_date_hint)
@@ -107,8 +111,8 @@ class Pipeline:
         """Returns one of: uploaded | skipped | filtered | not_found | failed."""
         try:
             resolved = self._resolve(ref)
-        except Exception as exc:
-            logger.error("Failed to resolve %s: %s", ref.describe(), exc)
+        except Exception:
+            logger.exception("Failed to resolve %s", ref.describe())
             return "failed"
         if resolved is None:
             return "failed"
@@ -131,7 +135,7 @@ class Pipeline:
             if "404" in str(exc):
                 logger.warning("Bulletin not found (404): %s", ref.url)
                 return "not_found"
-            logger.error("Failed to fetch/parse %s: %s", ref.url, exc)
+            logger.exception("Failed to fetch/parse %s", ref.url)
             return "failed"
 
         # The parsed page is authoritative for the ID (legacy bulletins).
@@ -166,8 +170,8 @@ class Pipeline:
         try:
             self._package_and_ship(bulletin)
             return "uploaded"
-        except Exception as exc:
-            logger.error("Failed to package/upload CSMS %s: %s", bulletin.message_id, exc)
+        except Exception:
+            logger.exception("Failed to package/upload CSMS %s", bulletin.message_id)
             return "failed"
 
     def _already_uploaded(self, message_id: str) -> bool:
@@ -205,8 +209,8 @@ class Pipeline:
                 logger.info("Downloading attachment %d/%d: %s", idx + 1, len(bulletin.attachments), att.url)
                 try:
                     size = self._client.download(att.url, local_path)
-                except Exception as exc:
-                    logger.error("Attachment download failed (%s): %s — continuing without it", att.url, exc)
+                except Exception:
+                    logger.exception("Attachment download failed (%s) — continuing without it", att.url)
                     continue
                 logger.info("Attachment saved: %s (%d bytes)", local_name, size)
                 sidecar = write_sidecar(

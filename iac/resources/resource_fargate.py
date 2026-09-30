@@ -1,14 +1,23 @@
 from aws_cdk import (
     aws_bedrock as bedrock,
+)
+from aws_cdk import (
     aws_ec2 as ec2,
+)
+from aws_cdk import (
     aws_ecr_assets as ecr_assets,
+)
+from aws_cdk import (
     aws_ecs as ecs,
+)
+from aws_cdk import (
     aws_ecs_patterns as ecs_patterns,
+)
+from aws_cdk import (
     aws_iam as iam,
 )
-from constructs import Construct
-
 from config import resource_name
+from constructs import Construct
 
 
 def create_fargate_resources(

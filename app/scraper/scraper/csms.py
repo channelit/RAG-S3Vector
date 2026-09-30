@@ -12,7 +12,7 @@ Facts (verified against live GovDelivery/CBP content, July 2026):
 
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 BULLETIN_URL_TEMPLATE = "https://content.govdelivery.com/accounts/USDHSCBP/bulletins/{code}"
 

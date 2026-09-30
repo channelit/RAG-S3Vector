@@ -26,7 +26,7 @@ import logging
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -44,15 +44,15 @@ class ScrapeRequest(BaseModel):
     sources: list[str] = []          # archive mode: presets, PDF URLs, local paths
     discover: bool = False           # archive mode ("all" mode always discovers, with preset fallback)
     targets: list[str] = []          # message mode: CSMS IDs or bulletin URLs
-    limit: Optional[int] = None
-    since: Optional[str] = None      # YYYY-MM-DD
-    until: Optional[str] = None      # YYYY-MM-DD
+    limit: int | None = None
+    since: str | None = None      # YYYY-MM-DD
+    until: str | None = None      # YYYY-MM-DD
     force: bool = False
     dry_run: bool = False
-    output_dir: Optional[str] = None
-    bucket: Optional[str] = None
-    prefix: Optional[str] = None
-    delay: Optional[float] = None
+    output_dir: str | None = None
+    bucket: str | None = None
+    prefix: str | None = None
+    delay: float | None = None
     reindex: bool = False            # delete + re-ingest each message in the KB after upload
 
     def to_argv(self) -> list[str]:
@@ -94,10 +94,10 @@ class ScrapeRequest(BaseModel):
 
 class ReindexRequest(BaseModel):
     targets: list[str] = []          # CSMS message IDs; empty => everything under the prefix
-    limit: Optional[int] = None
+    limit: int | None = None
     dry_run: bool = False
-    bucket: Optional[str] = None
-    prefix: Optional[str] = None
+    bucket: str | None = None
+    prefix: str | None = None
 
     def to_argv(self) -> list[str]:
         argv = ["reindex", *self.targets]
@@ -118,7 +118,7 @@ def _utcnow() -> str:
 
 def _run(run_id: str, argv: list[str]) -> None:
     from .__main__ import main
-    error: Optional[str] = None
+    error: str | None = None
     try:
         exit_code = main(argv)
     except SystemExit as exc:

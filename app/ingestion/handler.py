@@ -17,7 +17,6 @@ import os
 import urllib.parse
 
 import boto3
-
 from archive_pdf_handler import ArchivePdfHandler
 
 logger = logging.getLogger()
@@ -121,15 +120,15 @@ def lambda_handler(event, context):
                 )
                 logger.info("ArchivePdfHandler wrote %d vectors for %s", vectors_written, key)
                 processed += 1
-            except Exception as e:
-                logger.error("ArchivePdfHandler FAILED for %s: %s", key, e)
+            except Exception:
+                logger.exception("ArchivePdfHandler FAILED for %s", key)
             continue
 
         # Standard ingestion path (non-archive or non-PDF)
         try:
             obj = s3_client.get_object(Bucket=bucket, Key=key)
-        except Exception as e:
-            logger.error("Failed to get object s3://%s/%s: %s", bucket, key, e)
+        except Exception:
+            logger.exception("Failed to get object s3://%s/%s", bucket, key)
             continue
 
         raw = obj["Body"].read()

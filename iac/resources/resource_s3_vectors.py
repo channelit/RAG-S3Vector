@@ -1,7 +1,7 @@
-from aws_cdk import aws_iam as iam, custom_resources as cr
-from constructs import Construct
-
+from aws_cdk import aws_iam as iam
+from aws_cdk import custom_resources as cr
 from config import resource_name
+from constructs import Construct
 
 
 def create_vector_resources(scope: Construct, config: dict) -> dict:

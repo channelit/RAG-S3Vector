@@ -104,7 +104,7 @@ def list_current_messages(client: WebClient) -> list[MessageRef]:
             refs.extend(source(client))
         except Exception as exc:
             failures += 1
-            logger.warning("%s failed: %s", source.__name__, exc)
+            logger.warning("%s failed: %s", source.__name__, exc, exc_info=True)
     if failures == 2:
         raise RuntimeError("Both live feeds (widget JSON and RSS) failed")
 

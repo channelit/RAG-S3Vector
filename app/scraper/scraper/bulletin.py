@@ -57,15 +57,14 @@ def parse_sent_datetime(raw: str) -> datetime | None:
     if not m:
         return None
     stamp, tz_name = m.groups()
-    try:
-        naive = datetime.strptime(stamp, "%m/%d/%Y %I:%M %p")
-    except ValueError:
-        return None
     offset = _TZ_OFFSET_HOURS.get(tz_name)
     if offset is None:
         logger.warning("Unknown timezone %r in dateline — assuming Eastern (-5)", tz_name)
         offset = -5
-    return naive.replace(tzinfo=timezone(timedelta(hours=offset)))
+    try:
+        return datetime.strptime(stamp, "%m/%d/%Y %I:%M %p").replace(tzinfo=timezone(timedelta(hours=offset)))
+    except ValueError:
+        return None
 
 
 _DATE_ONLY_RE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$")

@@ -2,9 +2,8 @@ import hashlib
 import json
 
 from aws_cdk import aws_bedrock as bedrock
-from constructs import Construct
-
 from config import resource_name
+from constructs import Construct
 
 # Single user-facing message for every intervention (input or output).
 BLOCKED_MESSAGE = "Sorry we cannot answer this question."

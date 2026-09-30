@@ -16,7 +16,7 @@ Flow:
 import json
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import boto3
 
@@ -82,14 +82,14 @@ def retrieve(query_embedding: list[float], date_filter: dict | None = None) -> l
         "QueryVectors: bucket=%s index=%s topK=%d embedding_dim=%d filter=%s",
         VECTOR_BUCKET_NAME, VECTOR_INDEX_NAME, TOP_K, len(query_embedding), date_filter,
     )
-    kwargs = dict(
-        vectorBucketName=VECTOR_BUCKET_NAME,
-        indexName=VECTOR_INDEX_NAME,
-        topK=TOP_K,
-        queryVector={"float32": query_embedding},
-        returnMetadata=True,
-        returnDistance=True,
-    )
+    kwargs = {
+        "vectorBucketName": VECTOR_BUCKET_NAME,
+        "indexName": VECTOR_INDEX_NAME,
+        "topK": TOP_K,
+        "queryVector": {"float32": query_embedding},
+        "returnMetadata": True,
+        "returnDistance": True,
+    }
     if date_filter:
         kwargs["filter"] = date_filter
 
@@ -154,9 +154,7 @@ def _in_date_range(hit: dict, date_from: str | None, date_to: str | None) -> boo
     day = doc_date[:10]  # "YYYY-MM-DD"
     if date_from and day < date_from:
         return False
-    if date_to and day > date_to:
-        return False
-    return True
+    return not (date_to and day > date_to)
 
 
 def lambda_handler(event, context):

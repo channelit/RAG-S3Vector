@@ -13,10 +13,12 @@ this is a classic VECTOR knowledge base:
     indexed as filterable metadata.
 """
 
-from aws_cdk import aws_bedrock as bedrock, aws_iam as iam, aws_s3 as s3, custom_resources as cr
-from constructs import Construct
-
+from aws_cdk import aws_bedrock as bedrock
+from aws_cdk import aws_iam as iam
+from aws_cdk import aws_s3 as s3
+from aws_cdk import custom_resources as cr
 from config import resource_name
+from constructs import Construct
 
 
 def create_knowledge_base(

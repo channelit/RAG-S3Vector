@@ -24,7 +24,7 @@ right after it is uploaded. Both need KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID.
 import argparse
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .archive_pdf import (
     KNOWN_ARCHIVES,
@@ -42,7 +42,7 @@ logger = logging.getLogger("scraper")
 
 
 def _parse_date(value: str):
-    return datetime.strptime(value, "%Y-%m-%d").date()
+    return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -130,7 +130,7 @@ def _all_archive_sources(args, client: WebClient) -> list[str]:
     try:
         sources = discover_archive_pdfs(client)
     except Exception as exc:
-        logger.warning("Archive discovery failed (%s) — falling back to built-in presets", exc)
+        logger.warning("Archive discovery failed (%s) — falling back to built-in presets", exc, exc_info=True)
         sources = []
     return sources or list(KNOWN_ARCHIVES.values())
 

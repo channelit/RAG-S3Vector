@@ -80,7 +80,7 @@ class WebClient:
         try:
             resp = self.get(url)
         except Exception as exc:
-            logger.warning("lnks.gd resolution failed for %s: %s", url, exc)
+            logger.warning("lnks.gd resolution failed for %s: %s", url, exc, exc_info=True)
             return None
         m = _LNKS_META_RE.search(resp.text)
         if not m:

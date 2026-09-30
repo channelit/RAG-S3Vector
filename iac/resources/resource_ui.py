@@ -1,14 +1,23 @@
 from aws_cdk import (
     RemovalPolicy,
+)
+from aws_cdk import (
     aws_cloudfront as cloudfront,
+)
+from aws_cdk import (
     aws_cloudfront_origins as origins,
+)
+from aws_cdk import (
     aws_lambda as lambda_,
+)
+from aws_cdk import (
     aws_s3 as s3,
+)
+from aws_cdk import (
     aws_s3_deployment as s3deploy,
 )
-from constructs import Construct
-
 from config import resource_name
+from constructs import Construct
 
 
 def create_ui_resources(

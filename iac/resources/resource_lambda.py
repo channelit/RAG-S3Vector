@@ -1,7 +1,10 @@
-from aws_cdk import BundlingOptions, Duration, aws_iam as iam, aws_lambda as lambda_, aws_s3 as s3, aws_s3_notifications as s3n
-from constructs import Construct
-
+from aws_cdk import BundlingOptions, Duration
+from aws_cdk import aws_iam as iam
+from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_s3_notifications as s3n
 from config import resource_name
+from constructs import Construct
 
 
 def create_lambda_functions(
@@ -48,8 +51,10 @@ def create_lambda_functions(
                 image=runtime.bundling_image,
                 command=[
                     "bash", "-c",
-                    "pip install -r requirements.txt -t /asset-output --quiet "
-                    "&& cp -au . /asset-output",
+                    (
+                        "pip install -r requirements.txt -t /asset-output --quiet "
+                        "&& cp -au . /asset-output"
+                    ),
                 ],
             ),
         ),

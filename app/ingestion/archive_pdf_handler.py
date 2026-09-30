@@ -32,7 +32,7 @@ logger = logging.getLogger()
 class _TextExtractor(HTMLParser):
     """Strips tags and returns visible page text, skipping nav/script/style."""
 
-    _SKIP = {"script", "style", "nav", "header", "footer", "aside", "noscript", "menu"}
+    _SKIP = frozenset({"script", "style", "nav", "header", "footer", "aside", "noscript", "menu"})
 
     def __init__(self):
         super().__init__()
@@ -117,8 +117,8 @@ class ArchivePdfHandler:
 
             try:
                 page_text = self._fetch_text(url)
-            except Exception as exc:
-                logger.error("[ArchivePdf] Fetch failed for %s: %s", url, exc)
+            except Exception:
+                logger.exception("[ArchivePdf] Fetch failed for %s", url)
                 continue
 
             if not page_text.strip():
@@ -177,7 +177,9 @@ class ArchivePdfHandler:
 
     def _extract_links(self, pdf_bytes: bytes, source_key: str) -> list[str]:
         """Return deduplicated HTTP/HTTPS URLs from PDF annotation objects."""
-        from pypdf import PdfReader  # imported here so Lambda cold-start is unaffected for non-archive paths
+        from pypdf import (
+            PdfReader,  # imported here so Lambda cold-start is unaffected for non-archive paths
+        )
 
         reader = PdfReader(io.BytesIO(pdf_bytes))
         logger.info("[ArchivePdf] PDF has %d page(s)", len(reader.pages))
@@ -213,7 +215,7 @@ class ArchivePdfHandler:
                         )
                         return links
                 except Exception as exc:
-                    logger.warning("[ArchivePdf] Skipping annotation on page %d: %s", page_num + 1, exc)
+                    logger.warning("[ArchivePdf] Skipping annotation on page %d: %s", page_num + 1, exc, exc_info=True)
 
         return links
 
@@ -325,7 +327,7 @@ class ArchivePdfHandler:
                 text = instance._fetch_text(url)
             except Exception as exc:
                 print(f"  ERROR fetching: {exc}")
-                logger.error("Fetch failed for %s: %s", url, exc)
+                logger.exception("Fetch failed for %s", url)
                 continue
 
             chunks = instance._chunk_text(text)
