@@ -1,0 +1,37 @@
+This application uses generative artificial intelligence (AI) to search and summarize Cargo Systems Messaging Service (CSMS) messages published by U.S. Customs and Border Protection (CBP). Read these Rules of Behavior before you continue. Selecting ACCEPT means you have read them, understand them, and agree to follow them.
+
+1. AI-GENERATED ANSWERS
+
+Answers are written by an AI model, not by a CBP officer or employee. AI-generated content can be incomplete, out of date, or incorrect, even when it reads as confident and authoritative.
+
+Answers are for general information only. They are not official CBP guidance, a ruling, a determination, or legal advice, and they do not create any right or obligation.
+
+2. VERIFY BEFORE YOU ACT
+
+Check every answer against the cited CSMS messages and other official sources before you rely on it. If an answer differs from an official CBP publication, statute, or regulation, the official source controls.
+
+You remain responsible for any decision or action you take based on information from this application. It does not replace the judgment of a licensed customs broker, legal counsel, or other qualified professional.
+
+3. DO NOT ENTER SENSITIVE INFORMATION
+
+Do not enter any of the following. Questions that contain them may be blocked.
+- Personally identifiable information, such as names, Social Security numbers, passport numbers, dates of birth, addresses, or account numbers
+- Passwords, access keys, or other credentials
+- Confidential business information or trade secrets
+- Classified, law enforcement sensitive, or other controlled unclassified information
+
+4. ACCEPTABLE USE
+
+Use this application only for lawful purposes related to finding and understanding CSMS information. You must not:
+- Attempt to bypass, disable, or probe its security controls or content safeguards
+- Attempt to manipulate the AI model into ignoring its instructions or producing harmful, deceptive, or offensive content
+- Use automated tools to submit questions in bulk or otherwise degrade the service for others
+- Present AI-generated answers as official CBP statements
+
+5. MONITORING
+
+Questions you submit and the answers returned may be recorded, monitored, and reviewed to operate, secure, and improve the service. You have no reasonable expectation of privacy in the information you enter.
+
+6. NONCOMPLIANCE
+
+Failure to follow these rules may result in loss of access to this application and may be referred for action under applicable law.

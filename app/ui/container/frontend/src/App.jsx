@@ -3,21 +3,19 @@ import 'altcha' // registers the <altcha-widget> web component
 import flagImg from '@uswds/uswds/img/us_flag_small.png'
 import dotGovImg from '@uswds/uswds/img/icon-dot-gov.svg'
 import httpsImg from '@uswds/uswds/img/icon-https.svg'
-import closeImg from '@uswds/uswds/img/usa-icons/close.svg'
-import searchImg from '@uswds/uswds/img/usa-icons-bg/search--white.svg'
-import cbpWordmark from './assets/cbp-wordmark-white.svg'
-// Seals served locally as SVG (CBP seal traced from the public-domain artwork) — no external image hosts.
+// Seal and wordmark served locally as SVG (seal traced from the public-domain artwork) — no external image hosts.
 import CBP_SEAL from './assets/cbp-seal.svg'
-import DHS_SEAL from './assets/dhs-seal.svg'
-// Social icons copied from the cbp.gov theme (circular, single-colour)
-import xIcon from './assets/social/x.svg'
+import cbpWordmark from './assets/cbp-wordmark-white.svg'
+// Social icons as used in the ace.cbp.gov footer
 import facebookIcon from './assets/social/facebook.svg'
-import instagramIcon from './assets/social/instagram.svg'
-import flickrIcon from './assets/social/flickr.svg'
-import truthSocialIcon from './assets/social/truth-social.svg'
+import twitterIcon from './assets/social/twitter.svg'
 import youtubeIcon from './assets/social/youtube.svg'
+import flickrIcon from './assets/social/flickr.svg'
+import instagramIcon from './assets/social/instagram.svg'
 import linkedinIcon from './assets/social/linkedin.svg'
 import emailIcon from './assets/social/email.svg'
+// Rules of Behavior text, kept as plain text so it can be edited without touching the UI code
+import rulesOfBehaviorText from './rules-of-behavior.txt?raw'
 
 
 function GovBanner() {
@@ -78,191 +76,136 @@ function GovBanner() {
   )
 }
 
-// Primary sections of cbp.gov, mirrored from its live header.
-const CBP_NAV = [
-  { label: 'Travel', href: 'https://www.cbp.gov/travel' },
-  { label: 'Trade', href: 'https://www.cbp.gov/trade' },
-  { label: 'Border Security', href: 'https://www.cbp.gov/border-security' },
-  { label: 'Newsroom', href: 'https://www.cbp.gov/newsroom' },
-  { label: 'About CBP', href: 'https://www.cbp.gov/about' },
-  { label: 'Careers', href: 'https://careers.cbp.gov/s/' },
-  { label: 'Employee Resources', href: 'https://www.cbp.gov/employee-resources' },
+// Footer content mirrored from the ace.cbp.gov footer.
+const CBP_FOOTER_NAV = [
+  ['Travel', 'https://www.cbp.gov/travel'],
+  ['Trade', 'https://www.cbp.gov/trade'],
+  ['Border Security', 'https://www.cbp.gov/border-security'],
+  ['Newsroom', 'https://www.cbp.gov/newsroom'],
+  ['About CBP', 'https://www.cbp.gov/about'],
+  ['Careers', 'https://www.cbp.gov/careers'],
+  ['Employee Resources', 'https://www.cbp.gov/employee-resources'],
 ]
 
-// Official CBP channels and footer links, mirrored from the cbp.gov footer.
 const CBP_SOCIAL = [
-  { label: 'X', href: 'https://x.com/cbp', icon: xIcon },
   { label: 'Facebook', href: 'https://www.facebook.com/CBPgov', icon: facebookIcon },
-  { label: 'Instagram', href: 'https://www.instagram.com/cbpgov', icon: instagramIcon },
-  { label: 'Flickr', href: 'https://www.flickr.com/photos/cbpphotos', icon: flickrIcon },
-  { label: 'Truth Social', href: 'https://truthsocial.com/@cbpgov', icon: truthSocialIcon },
+  { label: 'Twitter/X', href: 'https://twitter.com/cbp', icon: twitterIcon },
   { label: 'YouTube', href: 'https://www.youtube.com/channel/UCVRj-aUsXBrlM8elk3zmLvw', icon: youtubeIcon },
+  { label: 'Flickr', href: 'https://www.flickr.com/photos/cbpphotos/', icon: flickrIcon },
+  { label: 'Instagram', href: 'https://www.instagram.com/cbpgov/', icon: instagramIcon },
   { label: 'LinkedIn', href: 'https://www.linkedin.com/company/customs-and-border-protection', icon: linkedinIcon },
-  { label: 'Email Updates', href: 'https://public.govdelivery.com/accounts/USDHSCBP/subscriber/new', icon: emailIcon },
+  { label: 'Email', href: 'https://public.govdelivery.com/accounts/USDHSCBP/subscriber/new', icon: emailIcon },
 ]
 
+// One array per column, as laid out on ACE at desktop width.
 const CBP_FOOTER_LINKS = [
   [
-    ['About CBP', 'https://www.cbp.gov/about'],
-    ['Section 508 Accessibility', 'https://www.cbp.gov/site-policy-notices/accessibility'],
-    ['Accountability', 'https://www.cbp.gov/newsroom/accountability-and-transparency'],
-    ['DHS Components', 'https://www.dhs.gov/operational-and-support-components'],
-    ['Forms', 'https://www.cbp.gov/newsroom/publications/forms'],
+    ['Accessibility', 'https://www.cbp.gov/site-policy-notices/accessibility'],
+    ['Accountability', 'https://www.cbp.gov/newsroom/publications/performance-accountability-financial'],
+    ['DHS Components', 'https://www.cbp.gov/dhs-component-websites'],
+    ['FOIA', 'https://www.cbp.gov/site-policy-notices/foia'],
   ],
   [
-    ['Freedom of Information Act (FOIA)', 'https://www.cbp.gov/site-policy-notices/foia'],
+    ['Forms', 'https://www.cbp.gov/newsroom/publications/forms'],
     ['Inspector General', 'https://www.oig.dhs.gov/'],
-    ['No FEAR Act', 'https://www.cbp.gov/about/eeo/no-fear-act'],
-    ['Vulnerability Disclosure Program', 'https://www.cbp.gov/document/directives/vulnerability-disclosure-program-policy-and-rules-engagement'],
+    ['No FEAR Act', 'https://www.cbp.gov/about/eeo-diversity/no-fear-act'],
     ['Privacy', 'https://www.cbp.gov/site-policy-notices/privacy-policy'],
   ],
   [
-    ['Contact Us', 'https://www.cbp.gov/about/contact'],
     ['Site Policies', 'https://www.cbp.gov/site-policy-notices'],
     ['The White House', 'https://www.whitehouse.gov/'],
     ['USA.gov', 'https://www.usa.gov/'],
-    ['Freedom 250', 'https://www.cbp.gov/250'],
+  ],
+  [
+    ['Vulnerability Disclosure Program', 'https://www.cbp.gov/document/directives/vulnerability-disclosure-program-policy-and-rules-engagement'],
   ],
 ]
 
-/** cbp.gov-style footer: white band with the CBP wordmark + social links, then
- *  a black band carrying the DHS identifier and three columns of links. */
+/** ace.cbp.gov-style footer: cbp.gov section links, then the CBP wordmark with
+ *  social links, then the USWDS identifier in ACE blue with the policy links. */
 function SiteFooter() {
   return (
-    <footer className="usa-footer usa-footer--medium cbp-footer">
-      <div className="usa-footer__primary-section cbp-footer__top">
-        <div className="grid-container cbp-footer__top-inner">
-          <a href="https://www.cbp.gov" className="cbp-footer__wordmark">
-            <img className="cbp-footer__seal" src={CBP_SEAL} alt="" />
-            <span className="cbp-footer__wordmark-text">U.S. Customs and<br />Border Protection</span>
-          </a>
-          <ul className="cbp-footer__social" aria-label="CBP social media">
-            {CBP_SOCIAL.map((s) => (
-              <li key={s.href}>
-                <a className="usa-social-link cbp-social-link" href={s.href} target="_blank" rel="noopener" title={`CBP ${s.label}`}>
-                  <img src={s.icon} alt={s.label} />
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-      <div className="usa-footer__secondary-section cbp-footer__bottom">
-        <div className="grid-container">
-          <section className="usa-identifier__section usa-identifier__section--masthead" aria-label="Agency identifier">
-            <div className="usa-identifier__container">
-              <div className="usa-identifier__logos">
-                <a href="https://www.dhs.gov" className="usa-identifier__logo">
-                  <img className="usa-identifier__logo-img" src={DHS_SEAL} alt="U.S. Department of Homeland Security seal" role="img" />
-                </a>
-              </div>
-              <div className="usa-identifier__identity" aria-label="Agency description">
-                <p className="usa-identifier__identity-domain">CBP.gov</p>
-                <p className="usa-identifier__identity-disclaimer">
-                  An official website of the <a href="https://www.dhs.gov">U.S. Department of Homeland Security</a>
-                </p>
-              </div>
-            </div>
-          </section>
-          <nav className="cbp-footer__links grid-row grid-gap-lg" aria-label="Footer links">
-            {CBP_FOOTER_LINKS.map((column, i) => (
-              <ul key={i} className="tablet:grid-col-4">
-                {column.map(([label, href]) => (
-                  <li key={href}><a href={href}>{label}</a></li>
-                ))}
-              </ul>
-            ))}
-          </nav>
-        </div>
-      </div>
-    </footer>
-  )
-}
-
-/** cbp.gov-style extended header: dark bar, seal wordmark, site search, primary links.
- *  USWDS JS is not loaded in this app, so the mobile menu toggle is handled here. */
-function SiteHeader() {
-  const [navOpen, setNavOpen] = useState(false)
-  const menuBtnRef = useRef(null)
-  const closeBtnRef = useRef(null)
-
-  const openNav = () => setNavOpen(true)
-  const closeNav = () => setNavOpen(false)
-
-  useEffect(() => {
-    if (navOpen) {
-      closeBtnRef.current?.focus()
-      const onKey = (e) => { if (e.key === 'Escape') closeNav() }
-      document.addEventListener('keydown', onKey)
-      return () => document.removeEventListener('keydown', onKey)
-    }
-    menuBtnRef.current?.focus({ preventScroll: true })
-  }, [navOpen])
-
-  return (
     <>
-      <div className={`usa-overlay${navOpen ? ' is-visible' : ''}`} onClick={closeNav}></div>
-      <header className="usa-header usa-header--extended cbp-header">
-        <div className="usa-navbar">
-          <div className="usa-logo cbp-wordmark" id="extended-logo">
-            <a href="https://www.cbp.gov" className="cbp-wordmark__link">
-              <img
-                className="cbp-wordmark__img"
-                src={cbpWordmark}
-                alt="U.S. Customs and Border Protection, U.S. Department of Homeland Security. CBP.gov home"
-              />
-            </a>
-            <span className="cbp-wordmark__app">CSMS Intelligent Retrieval and Compliance Assistant</span>
-          </div>
-          <button
-            type="button"
-            className="usa-menu-btn"
-            ref={menuBtnRef}
-            aria-expanded={navOpen}
-            aria-controls="primary-nav"
-            onClick={openNav}
-          >
-            Menu
-          </button>
-        </div>
-        <nav aria-label="Primary navigation" className={`usa-nav${navOpen ? ' is-visible' : ''}`} id="primary-nav">
-          <div className="usa-nav__inner">
-            <button type="button" className="usa-nav__close" ref={closeBtnRef} onClick={closeNav}>
-              <img src={closeImg} role="img" alt="Close" />
-            </button>
-            <ul className="usa-nav__primary usa-accordion">
-              {CBP_NAV.map((item) => (
-                <li key={item.href} className="usa-nav__primary-item">
-                  <a href={item.href} className="usa-nav__link"><span>{item.label}</span></a>
+      <footer className="usa-footer usa-footer--medium ace-footer">
+        <div className="usa-footer__primary-section">
+          <nav className="usa-footer__nav" aria-label="Footer navigation">
+            <ul className="ace-footer__nav-list">
+              {CBP_FOOTER_NAV.map(([label, href]) => (
+                <li key={href} className="usa-footer__primary-content">
+                  <a className="usa-footer__primary-link" href={href}>{label}</a>
                 </li>
               ))}
             </ul>
-            <div className="usa-nav__secondary">
-              <section aria-label="Search CBP.gov">
-                <form
-                  className="usa-search usa-search--small cbp-search"
-                  role="search"
-                  action="https://www.cbp.gov/search"
-                  method="get"
-                >
-                  <label className="usa-sr-only" htmlFor="cbp-search-field">Search CBP.gov</label>
-                  <input
-                    className="usa-input"
-                    id="cbp-search-field"
-                    type="search"
-                    name="query"
-                    placeholder="Search CBP.gov"
-                  />
-                  <button className="usa-button" type="submit">
-                    <img src={searchImg} className="usa-search__submit-icon" alt="Search" />
-                  </button>
-                </form>
-              </section>
+          </nav>
+        </div>
+        <div className="usa-footer__secondary-section">
+          <div className="grid-container ace-footer__brand">
+            <a href="https://www.cbp.gov" className="ace-wordmark">
+              <img className="ace-wordmark__seal" src={CBP_SEAL} alt="" />
+              <span className="ace-wordmark__text">U.S. Customs and<br />Border Protection</span>
+            </a>
+            <div>
+              <ul className="ace-footer__social" aria-label="CBP social media">
+                {CBP_SOCIAL.map((s) => (
+                  <li key={s.href}>
+                    <a className="usa-social-link" href={s.href} target="_blank" rel="noopener" title={s.label}>
+                      <img className="usa-social-link__icon" src={s.icon} alt={s.label} />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              <p className="ace-footer__contact-link">
+                <a href="https://www.cbp.gov/about/contact">Contact CBP</a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </footer>
+      <div className="usa-identifier ace-identifier">
+        <section className="usa-identifier__section usa-identifier__section--masthead" aria-label="Agency identifier">
+          <div className="usa-identifier__container">
+            <div className="usa-identifier__logos">
+              <a href="https://www.cbp.gov" className="usa-identifier__logo">
+                <img className="usa-identifier__logo-img" src={CBP_SEAL} alt="CBP seal" role="img" />
+              </a>
+            </div>
+            <section className="usa-identifier__identity" aria-label="Agency description">
+              <p className="usa-identifier__identity-domain">CBP.gov</p>
+              <p className="usa-identifier__identity-disclaimer">
+                An official website of the <a href="https://www.dhs.gov/">U.S. Department of Homeland Security</a>
+              </p>
+            </section>
+          </div>
+        </section>
+        <nav className="usa-identifier__section ace-identifier__links" aria-label="Important links">
+          <div className="usa-identifier__container">
+            <div className="ace-identifier__columns">
+              {CBP_FOOTER_LINKS.map((column, i) => (
+                <ul key={i}>
+                  {column.map(([label, href]) => (
+                    <li key={href}><a href={href}>{label}</a></li>
+                  ))}
+                </ul>
+              ))}
             </div>
           </div>
         </nav>
-      </header>
+      </div>
     </>
+  )
+}
+
+/** ace.cbp.gov-style header: navy bar with the CBP wordmark and the app name. */
+function SiteHeader() {
+  return (
+    <header className="usa-header ace-header">
+      <div className="ace-header__inner">
+        <a href="https://www.cbp.gov" className="ace-header__logo">
+          <img src={cbpWordmark} alt="U.S. Customs and Border Protection. CBP.gov home" />
+        </a>
+        <span className="ace-header__title">CSMS Intelligent Retrieval and Compliance Assistant</span>
+      </div>
+    </header>
   )
 }
 
@@ -305,6 +248,88 @@ function AltchaCaptcha({ challengeUrl, onPayload, resetKey }) {
   )
 }
 
+// Accepting the Rules of Behavior is remembered for the browser tab session,
+// like the captcha token below. Storage can throw; the in-memory state still works.
+const RULES_ACCEPTED_KEY = 'rulesOfBehaviorAccepted'
+
+function loadRulesAccepted() {
+  try {
+    return sessionStorage.getItem(RULES_ACCEPTED_KEY) === '1'
+  } catch { /* ignore */ }
+  return false
+}
+
+function saveRulesAccepted() {
+  try {
+    sessionStorage.setItem(RULES_ACCEPTED_KEY, '1')
+  } catch { /* ignore */ }
+}
+
+/** Rules of Behavior gate, shown until the user accepts. A native <dialog>
+ *  opened with showModal() traps focus and makes the page behind it inert, and
+ *  Escape is disabled, so the only way past it is ACCEPT. DECLINE swaps the
+ *  rules for a notice with a way back to them. Only the text scrolls; the
+ *  heading and the buttons stay in view. */
+function RulesOfBehaviorModal({ onAccept }) {
+  const ref = useRef(null)
+  const textRef = useRef(null)
+  const backRef = useRef(null)
+  const [declined, setDeclined] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (el && !el.open) el.showModal()
+  }, [])
+
+  // Swapping the view removes the focused button; keep focus inside the dialog
+  useEffect(() => {
+    (declined ? backRef : textRef).current?.focus()
+  }, [declined])
+
+  return (
+    <dialog
+      ref={ref}
+      className="rob-modal"
+      aria-labelledby="rob-heading"
+      aria-describedby="rob-hint"
+      onCancel={(e) => e.preventDefault()}
+      // Browsers can still close on a repeated Escape; put it straight back
+      onClose={(e) => e.currentTarget.showModal()}
+    >
+      <h2 className="rob-modal__header" id="rob-heading">Rules of Behavior</h2>
+      {declined ? (
+        <div className="rob-modal__body" role="alert">
+          <strong>You declined the Rules of Behavior.</strong> This application can only be used
+          after you accept them. You can close this page, or go back to review and accept the rules.
+        </div>
+      ) : (
+        <div className="rob-modal__body" ref={textRef} tabIndex={0} role="region" aria-label="Rules of Behavior text">
+          {rulesOfBehaviorText.trim()}
+        </div>
+      )}
+      <p className="rob-modal__hint" id="rob-hint">
+        You must accept the rules of behavior before proceeding
+      </p>
+      <div className="rob-modal__footer">
+        {declined ? (
+          <button type="button" className="usa-button" ref={backRef} onClick={() => setDeclined(false)}>
+            BACK TO RULES
+          </button>
+        ) : (
+          <>
+            <button type="button" className="usa-button usa-button--outline" onClick={() => setDeclined(true)}>
+              DECLINE
+            </button>
+            <button type="button" className="usa-button" onClick={onAccept}>
+              ACCEPT
+            </button>
+          </>
+        )}
+      </div>
+    </dialog>
+  )
+}
+
 // The captcha session token lives in sessionStorage so one solve covers the
 // whole browser tab session, reloads included. Storage can throw (private mode,
 // blocked site data); the in-memory state still works then.
@@ -339,6 +364,12 @@ function App() {
   const [captchaToken, setCaptchaTokenState] = useState(loadCaptchaToken)
   const [captchaVerifying, setCaptchaVerifying] = useState(false)
   const [altchaResetKey, setAltchaResetKey] = useState(0)
+  const [rulesAccepted, setRulesAccepted] = useState(loadRulesAccepted)
+
+  const acceptRules = () => {
+    saveRulesAccepted()
+    setRulesAccepted(true)
+  }
 
   const setCaptchaToken = (value) => {
     saveCaptchaToken(value)
@@ -451,12 +482,18 @@ function App() {
                   className="usa-textarea"
                   id="query"
                   name="query"
-                  aria-describedby="query-hint"
+                  aria-describedby="query-hint ai-notice"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={onKeyDown}
                   placeholder="Ask a question about CSMS documents…"
                 />
+                <p className="ai-notice" id="ai-notice">
+                  <svg className="ai-notice__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+                  </svg>
+                  AI-generated content may be inaccurate. Human review is mandatory before using or sharing this information.
+                </p>
               </div>
 
               <fieldset className="usa-fieldset margin-top-3">
@@ -566,6 +603,8 @@ function App() {
       </main>
 
       <SiteFooter />
+
+      {!rulesAccepted && <RulesOfBehaviorModal onAccept={acceptRules} />}
     </>
   )
 }
