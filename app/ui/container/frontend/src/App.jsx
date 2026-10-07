@@ -272,7 +272,7 @@ function saveRulesAccepted() {
  *  heading and the buttons stay in view. */
 function RulesOfBehaviorModal({ onAccept }) {
   const ref = useRef(null)
-  const textRef = useRef(null)
+  const acceptRef = useRef(null)
   const backRef = useRef(null)
   const [declined, setDeclined] = useState(false)
 
@@ -281,10 +281,11 @@ function RulesOfBehaviorModal({ onAccept }) {
     if (el && !el.open) el.showModal()
   }, [])
 
-  // Swapping the view removes the focused button; keep focus inside the dialog
-  useEffect(() => {
-    (declined ? backRef : textRef).current?.focus()
-  }, [declined])
+  // showModal() would focus the scrollable text first; the action button of the
+  // current view takes it instead. Swapping the view removes the focused
+  // button, so this also keeps focus inside the dialog.
+  const focusAction = () => (declined ? backRef : acceptRef).current?.focus()
+  useEffect(focusAction, [declined])
 
   return (
     <dialog
@@ -294,7 +295,7 @@ function RulesOfBehaviorModal({ onAccept }) {
       aria-describedby="rob-hint"
       onCancel={(e) => e.preventDefault()}
       // Browsers can still close on a repeated Escape; put it straight back
-      onClose={(e) => e.currentTarget.showModal()}
+      onClose={(e) => { e.currentTarget.showModal(); focusAction() }}
     >
       <h2 className="rob-modal__header" id="rob-heading">Rules of Behavior</h2>
       {declined ? (
@@ -303,7 +304,7 @@ function RulesOfBehaviorModal({ onAccept }) {
           after you accept them. You can close this page, or go back to review and accept the rules.
         </div>
       ) : (
-        <div className="rob-modal__body" ref={textRef} tabIndex={0} role="region" aria-label="Rules of Behavior text">
+        <div className="rob-modal__body" tabIndex={0} role="region" aria-label="Rules of Behavior text">
           {rulesOfBehaviorText.trim()}
         </div>
       )}
@@ -320,7 +321,7 @@ function RulesOfBehaviorModal({ onAccept }) {
             <button type="button" className="usa-button usa-button--outline" onClick={() => setDeclined(true)}>
               DECLINE
             </button>
-            <button type="button" className="usa-button" onClick={onAccept}>
+            <button type="button" className="usa-button" ref={acceptRef} onClick={onAccept}>
               ACCEPT
             </button>
           </>

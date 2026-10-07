@@ -546,7 +546,7 @@
 
   <!-- Rules of Behavior gate: shown until accepted, once per browser session.
        The text is loaded from rules-of-behavior.txt next to this page. -->
-  <dialog class="rob-modal" id="rob-modal" aria-labelledby="rob-heading" aria-describedby="rob-hint">
+  <dialog class="rob-modal" id="rob-modal" tabindex="-1" aria-labelledby="rob-heading" aria-describedby="rob-hint">
     <h2 class="rob-modal__header" id="rob-heading">Rules of Behavior</h2>
     <div class="rob-modal__body" id="rob-text" tabindex="0" role="region" aria-label="Rules of Behavior text">Loading…</div>
     <div class="rob-modal__body" id="rob-declined" role="alert" hidden><strong>You declined the Rules of Behavior.</strong> This application can only be used after you accept them. You can close this page, or go back to review and accept the rules.</div>
@@ -630,6 +630,14 @@
       const modal = $('rob-modal')
       let accepted = false
 
+      // showModal() would focus the scrollable text first; the action button of
+      // the current view takes it instead, or the dialog itself while ACCEPT is
+      // still disabled
+      const focusAction = () => {
+        const target = $('rob-back').hidden ? $('rob-accept') : $('rob-back')
+        ;(target.disabled ? modal : target).focus()
+      }
+
       // DECLINE swaps the rules for a notice with a way back to them
       const setDeclined = (declined) => {
         $('rob-text').hidden = declined
@@ -637,7 +645,7 @@
         $('rob-decline').hidden = declined
         $('rob-accept').hidden = declined
         $('rob-back').hidden = !declined
-        $(declined ? 'rob-back' : 'rob-text').focus()
+        focusAction()
       }
 
       $('rob-decline').addEventListener('click', () => setDeclined(true))
@@ -650,9 +658,10 @@
       // Escape must not dismiss it; browsers can still close on a repeated
       // Escape, so put it straight back unless the rules were accepted
       modal.addEventListener('cancel', (e) => e.preventDefault())
-      modal.addEventListener('close', () => { if (!accepted) modal.showModal() })
+      modal.addEventListener('close', () => { if (!accepted) { modal.showModal(); focusAction() } })
 
       modal.showModal()
+      focusAction()
 
       // ACCEPT stays disabled until there is text to accept
       fetch('rules-of-behavior.txt')
@@ -660,6 +669,7 @@
         .then((text) => {
           $('rob-text').textContent = text.trim()
           $('rob-accept').disabled = false
+          focusAction()
         })
         .catch((e) => {
           $('rob-text').textContent = `The Rules of Behavior could not be loaded (${e.message}). Reload the page to try again.`
