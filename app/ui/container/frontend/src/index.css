@@ -1,18 +1,123 @@
-/* ---- ace.cbp.gov page chrome (banner, header, footer) on stock USWDS ----
-   Everything between the header and the footer is the unmodified USWDS theme.
-   Colours and spacing are taken from the ACE portal, whose footer is itself a
-   recoloured USWDS footer + identifier. */
+/* ---- CBP Style Guide colours on stock USWDS ----
+   Palette: https://us-cbp.github.io/cbp-style-guide/docs/foundation/colors.html
+   This is the only colour theme: the page chrome (banner, header, footer, laid
+   out like ace.cbp.gov) uses the tokens directly, and every USWDS component
+   used on the page is recoloured to the same tokens right below. */
 :root {
-  --ace-banner: #ebf3fa;       /* government banner */
-  --ace-navy: #1f3253;         /* header bar */
-  --ace-footer-nav: #edeeee;   /* footer: cbp.gov section links */
-  --ace-footer-brand: #dedfe0; /* footer: CBP wordmark + social links */
-  --ace-blue: #005288;         /* footer: agency identifier, wordmark text */
+  /* primary palette */
+  --cbp-primary: #00416a;
+  --cbp-success: #008000;
+  --cbp-info: #1460aa;
+  --cbp-warning: #f09511;
+  --cbp-danger: #a00000;
+  /* subtle palette */
+  --cbp-primary-bg: #ecf1f4;
+  --cbp-success-bg: #ecf5ec;
+  --cbp-info-bg: #edf3f9;
+  --cbp-warning-bg: #fef7ed;
+  --cbp-danger-bg: #f8ecec;
+  /* grays */
+  --cbp-gray-darker: #222222;
+  --cbp-gray-dark: #333333;
+  --cbp-gray: #555555;
+  --cbp-gray-medium: #808080;
+  --cbp-gray-light: #aaaaaa;
+  --cbp-gray-lighter: #eeeeee;
+  --cbp-gray-lightest: #f6f6f6;
+  /* the guide has no hover shade: the darker navy of its data visualization
+     palette; and its approved light text on the primary (Section 508 table) */
+  --cbp-primary-dark: #003865;
+  --cbp-primary-light: #95d9ff;
+}
+
+/* USWDS components used on the page: text, links, buttons, form fields,
+   answer box and error alert, recoloured from the USWDS defaults */
+body,
+.usa-banner__header-text,
+.usa-intro,
+.usa-label,
+.usa-legend,
+.usa-input,
+.usa-textarea,
+.usa-summary-box,
+.usa-alert .usa-alert__body {
+  color: var(--cbp-gray-dark);
+}
+.usa-hint {
+  color: var(--cbp-gray);
+}
+a,
+a:visited,
+.usa-link,
+.usa-link:visited,
+.usa-skipnav,
+.usa-banner__header-action,
+.usa-banner__button,
+.usa-banner__button-text {
+  color: var(--cbp-primary);
+}
+a:hover,
+a:active,
+.usa-link:hover,
+.usa-link:active,
+.usa-alert .usa-alert__body .usa-link,
+.usa-banner__button:hover,
+.usa-banner__button:hover .usa-banner__button-text {
+  color: var(--cbp-primary-dark);
+}
+.usa-button {
+  background-color: var(--cbp-primary);
+}
+.usa-button:hover,
+.usa-button:active {
+  background-color: var(--cbp-primary-dark);
+}
+.usa-button--outline {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--cbp-primary);
+  color: var(--cbp-primary);
+}
+.usa-button--outline:hover,
+.usa-button--outline:active {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--cbp-primary-dark);
+  color: var(--cbp-primary-dark);
+}
+.usa-button:disabled,
+.usa-button:disabled:hover,
+.usa-button:disabled:focus,
+.usa-button:disabled:active {
+  background-color: var(--cbp-gray-lighter);
+  color: var(--cbp-gray);
+}
+/* Focus ring: the primary instead of USWDS's bright blue, and the approved
+   light blue where the ring would sit on the primary */
+:is(a, button, input, textarea, select, [tabindex]):not([disabled]):focus {
+  outline-color: var(--cbp-primary);
+}
+.cbp-header :is(a, button):not([disabled]):focus,
+.cbp-identifier :is(a, button):not([disabled]):focus {
+  outline-color: var(--cbp-primary-light);
+}
+.usa-input,
+.usa-textarea {
+  border-color: var(--cbp-gray-medium);
+}
+.usa-summary-box {
+  background-color: var(--cbp-info-bg);
+  border-color: var(--cbp-info);
+}
+.usa-alert--error,
+.usa-alert--error .usa-alert__body {
+  background-color: var(--cbp-danger-bg);
+}
+.usa-alert--error {
+  border-left-color: var(--cbp-danger);
 }
 
 /* Government banner: tinted, and run from the left edge instead of centred */
 .usa-banner {
-  background-color: var(--ace-banner);
+  background-color: var(--cbp-primary-bg);
 }
 .usa-banner__inner,
 .usa-banner__content {
@@ -20,25 +125,25 @@
 }
 
 /* Header: full-width navy bar with the logo at the left edge */
-.ace-header {
-  background-color: var(--ace-navy);
+.cbp-header {
+  background-color: var(--cbp-primary);
 }
-.ace-header__inner {
+.cbp-header__inner {
   display: flex;
   align-items: center;
   gap: 1rem;
   padding: 0.625rem 1rem;
 }
-.ace-header__logo {
+.cbp-header__logo {
   display: inline-flex;
   flex: 0 0 auto;
   line-height: 0;
 }
-.ace-header__logo img {
+.cbp-header__logo img {
   height: 38px;
   width: auto;
 }
-.ace-header__title {
+.cbp-header__title {
   color: #fff;
   font-size: 0.93rem;
   line-height: 1.3;
@@ -48,76 +153,76 @@
   border-left: 1px solid rgba(255, 255, 255, 0.45);
 }
 @media (min-width: 64em) {
-  .ace-header__inner {
+  .cbp-header__inner {
     min-height: 105px;
     padding: 14px 20px;
   }
-  .ace-header__logo img {
+  .cbp-header__logo img {
     height: 69px;
   }
 }
 
 /* Footer band 1: cbp.gov section links, stacked and centred on small screens */
-.ace-footer .usa-footer__primary-section {
-  background-color: var(--ace-footer-nav);
+.cbp-footer .usa-footer__primary-section {
+  background-color: var(--cbp-gray-lightest);
 }
-.ace-footer .usa-footer__nav {
+.cbp-footer .usa-footer__nav {
   border-bottom: 0;
 }
-.ace-footer__nav-list {
+.cbp-footer__nav-list {
   display: flex;
   flex-direction: column;
   text-align: center;
 }
-.ace-footer .usa-footer__primary-link {
+.cbp-footer .usa-footer__primary-link {
   border: 0;
-  color: #080808;
+  color: var(--cbp-gray-dark);
   line-height: 1.5;
   padding: 1rem;
   text-decoration: none;
 }
-.ace-footer .usa-footer__primary-link:hover {
+.cbp-footer .usa-footer__primary-link:hover {
   text-decoration: underline;
 }
 @media (min-width: 40em) {
-  .ace-footer__nav-list {
+  .cbp-footer__nav-list {
     flex-direction: row;
     flex-wrap: wrap;
     text-align: left;
   }
-  .ace-footer__nav-list > li {
+  .cbp-footer__nav-list > li {
     flex: 1 1 auto;
   }
 }
 
 /* Footer band 2: CBP wordmark on the left, social links + contact on the right */
-.ace-footer .usa-footer__secondary-section {
-  background-color: var(--ace-footer-brand);
+.cbp-footer .usa-footer__secondary-section {
+  background-color: var(--cbp-gray-lighter);
 }
-.ace-footer__brand {
+.cbp-footer__brand {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
-.ace-wordmark {
+.cbp-wordmark {
   display: inline-flex;
   align-items: center;
   gap: 0.75rem;
   text-decoration: none;
 }
-.ace-wordmark__seal {
+.cbp-wordmark__seal {
   flex: 0 0 auto;
   height: 5.375rem;
   width: 5.375rem;
 }
-.ace-wordmark__text {
-  color: var(--ace-blue);
+.cbp-wordmark__text {
+  color: var(--cbp-primary);
   font-family: "Merriweather Web", Georgia, Cambria, "Times New Roman", serif;
   font-size: 1.33rem;
   font-weight: 700;
   line-height: 1.15;
 }
-.ace-footer__social {
+.cbp-footer__social {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1.5rem;
@@ -125,64 +230,67 @@
   margin: 0;
   padding: 0 0 0.5rem;
 }
-.ace-footer .usa-social-link {
+.cbp-footer .usa-social-link {
   display: block;
   padding: 0.5rem;
 }
-.ace-footer__contact-link {
+.cbp-footer__contact-link {
   font-weight: 700;
   margin: 0;
 }
 @media (min-width: 64em) {
-  .ace-footer__brand {
+  .cbp-footer__brand {
     flex-direction: row;
     align-items: flex-start;
     justify-content: space-between;
   }
-  .ace-footer__social {
+  .cbp-footer__social {
     justify-content: flex-end;
   }
-  .ace-footer__contact-link {
+  .cbp-footer__contact-link {
     text-align: right;
   }
 }
 
-/* Footer band 3: USWDS identifier in ACE blue with white links */
-.ace-identifier {
-  background-color: var(--ace-blue);
+/* Footer band 3: USWDS identifier on the primary, with white links */
+.cbp-identifier {
+  background-color: var(--cbp-primary);
 }
-.ace-identifier .usa-identifier__identity-domain,
-.ace-identifier .usa-identifier__identity-disclaimer a,
-.ace-identifier .usa-identifier__identity-disclaimer a:visited,
-.ace-identifier__links a,
-.ace-identifier__links a:visited {
+.cbp-identifier .usa-identifier__identity-disclaimer {
+  color: var(--cbp-primary-light);
+}
+.cbp-identifier .usa-identifier__identity-domain,
+.cbp-identifier .usa-identifier__identity-disclaimer a,
+.cbp-identifier .usa-identifier__identity-disclaimer a:visited,
+.cbp-identifier__links a,
+.cbp-identifier__links a:visited {
   color: #fff;
 }
-.ace-identifier__links {
+.cbp-identifier__links {
   padding-top: 2rem;
   padding-bottom: 3rem;
 }
-.ace-identifier__columns {
+.cbp-identifier__columns {
   display: grid;
   grid-template-columns: 1fr;
 }
-.ace-identifier__columns ul {
+.cbp-identifier__columns ul {
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.ace-identifier__columns li {
+.cbp-identifier__columns li {
   line-height: 1.5;
   margin-bottom: 0.75rem;
   padding-right: 1rem;
 }
 @media (min-width: 40em) {
-  .ace-identifier__columns {
+  .cbp-identifier__columns {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 @media (min-width: 64em) {
-  .ace-identifier__columns {
+  .cbp-identifier__columns {
     grid-template-columns: repeat(4, 18.75%);
   }
 }
@@ -200,7 +308,7 @@
    kept to the width of the box */
 .ai-notice {
   align-items: flex-start;
-  color: #565c65;
+  color: var(--cbp-gray);
   display: flex;
   font-size: 0.87rem;
   gap: 0.375rem;
@@ -209,7 +317,7 @@
   max-width: 30rem;
 }
 .ai-notice__icon {
-  fill: #c2850c;
+  fill: var(--cbp-warning);
   flex: 0 0 auto;
   height: 1.2rem;
   width: 1.2rem;
@@ -224,7 +332,7 @@ html:has(.rob-modal[open]) {
   border: 0;
   border-radius: 0.25rem;
   box-shadow: 0 0.5rem 2rem rgba(0, 0, 0, 0.4);
-  color: #1b1b1b;
+  color: var(--cbp-gray-dark);
   max-height: min(42rem, calc(100% - 2rem));
   max-width: 44rem;
   padding: 0;
@@ -234,11 +342,18 @@ html:has(.rob-modal[open]) {
   display: flex;
   flex-direction: column;
 }
+/* No focus ring for focus moved by script or by pointer inside the dialog:
+   the dialog itself takes focus when it opens, and the action button when the
+   view swaps. Keyboard focus keeps the ring. */
+.rob-modal:focus,
+.rob-modal :focus:not(:focus-visible) {
+  outline: 0;
+}
 .rob-modal::backdrop {
   background-color: rgba(0, 0, 0, 0.7);
 }
 .rob-modal__header {
-  background-color: var(--ace-navy);
+  background-color: var(--cbp-primary);
   color: #fff;
   flex: 0 0 auto;
   font-size: 1.33rem;
@@ -247,7 +362,7 @@ html:has(.rob-modal[open]) {
   padding: 1rem 1.5rem;
 }
 .rob-modal__body {
-  border: 1px solid #a9aeb1;
+  border: 1px solid var(--cbp-gray-light);
   flex: 1 1 auto;
   line-height: 1.5;
   margin: 1.5rem 1.5rem 0;
@@ -257,7 +372,7 @@ html:has(.rob-modal[open]) {
   white-space: pre-wrap;
 }
 .rob-modal__hint {
-  color: #565c65;
+  color: var(--cbp-gray);
   flex: 0 0 auto;
   font-size: 0.87rem;
   line-height: 1.4;
@@ -273,4 +388,17 @@ html:has(.rob-modal[open]) {
 }
 .rob-modal__footer .usa-button {
   margin: 0;
+}
+
+/* ALTCHA captcha widget (container UI only): it is themed through its own
+   custom properties */
+altcha-widget {
+  --altcha-border-color: var(--cbp-gray-medium);
+  --altcha-checkbox-border-color: var(--cbp-gray-medium);
+  --altcha-checkbox-outline-color: var(--cbp-primary);
+  --altcha-color-base-content: var(--cbp-gray-dark);
+  --altcha-color-primary: var(--cbp-primary);
+  --altcha-color-success: var(--cbp-success);
+  --altcha-color-error: var(--cbp-danger);
+  --altcha-spinner-color: var(--cbp-primary);
 }

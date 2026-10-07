@@ -122,14 +122,14 @@ const CBP_FOOTER_LINKS = [
 ]
 
 /** ace.cbp.gov-style footer: cbp.gov section links, then the CBP wordmark with
- *  social links, then the USWDS identifier in ACE blue with the policy links. */
+ *  social links, then the USWDS identifier on the primary with the policy links. */
 function SiteFooter() {
   return (
     <>
-      <footer className="usa-footer usa-footer--medium ace-footer">
+      <footer className="usa-footer usa-footer--medium cbp-footer">
         <div className="usa-footer__primary-section">
           <nav className="usa-footer__nav" aria-label="Footer navigation">
-            <ul className="ace-footer__nav-list">
+            <ul className="cbp-footer__nav-list">
               {CBP_FOOTER_NAV.map(([label, href]) => (
                 <li key={href} className="usa-footer__primary-content">
                   <a className="usa-footer__primary-link" href={href}>{label}</a>
@@ -139,13 +139,13 @@ function SiteFooter() {
           </nav>
         </div>
         <div className="usa-footer__secondary-section">
-          <div className="grid-container ace-footer__brand">
-            <a href="https://www.cbp.gov" className="ace-wordmark">
-              <img className="ace-wordmark__seal" src={CBP_SEAL} alt="" />
-              <span className="ace-wordmark__text">U.S. Customs and<br />Border Protection</span>
+          <div className="grid-container cbp-footer__brand">
+            <a href="https://www.cbp.gov" className="cbp-wordmark">
+              <img className="cbp-wordmark__seal" src={CBP_SEAL} alt="" />
+              <span className="cbp-wordmark__text">U.S. Customs and<br />Border Protection</span>
             </a>
             <div>
-              <ul className="ace-footer__social" aria-label="CBP social media">
+              <ul className="cbp-footer__social" aria-label="CBP social media">
                 {CBP_SOCIAL.map((s) => (
                   <li key={s.href}>
                     <a className="usa-social-link" href={s.href} target="_blank" rel="noopener" title={s.label}>
@@ -154,14 +154,14 @@ function SiteFooter() {
                   </li>
                 ))}
               </ul>
-              <p className="ace-footer__contact-link">
+              <p className="cbp-footer__contact-link">
                 <a href="https://www.cbp.gov/about/contact">Contact CBP</a>
               </p>
             </div>
           </div>
         </div>
       </footer>
-      <div className="usa-identifier ace-identifier">
+      <div className="usa-identifier cbp-identifier">
         <section className="usa-identifier__section usa-identifier__section--masthead" aria-label="Agency identifier">
           <div className="usa-identifier__container">
             <div className="usa-identifier__logos">
@@ -177,9 +177,9 @@ function SiteFooter() {
             </section>
           </div>
         </section>
-        <nav className="usa-identifier__section ace-identifier__links" aria-label="Important links">
+        <nav className="usa-identifier__section cbp-identifier__links" aria-label="Important links">
           <div className="usa-identifier__container">
-            <div className="ace-identifier__columns">
+            <div className="cbp-identifier__columns">
               {CBP_FOOTER_LINKS.map((column, i) => (
                 <ul key={i}>
                   {column.map(([label, href]) => (
@@ -195,15 +195,15 @@ function SiteFooter() {
   )
 }
 
-/** ace.cbp.gov-style header: navy bar with the CBP wordmark and the app name. */
+/** ace.cbp.gov-style header: bar on the primary with the CBP wordmark and the app name. */
 function SiteHeader() {
   return (
-    <header className="usa-header ace-header">
-      <div className="ace-header__inner">
-        <a href="https://www.cbp.gov" className="ace-header__logo">
+    <header className="usa-header cbp-header">
+      <div className="cbp-header__inner">
+        <a href="https://www.cbp.gov" className="cbp-header__logo">
           <img src={cbpWordmark} alt="U.S. Customs and Border Protection. CBP.gov home" />
         </a>
-        <span className="ace-header__title">CSMS Intelligent Retrieval and Compliance Assistant</span>
+        <span className="cbp-header__title">CSMS Intelligent Retrieval and Compliance Assistant</span>
       </div>
     </header>
   )
@@ -276,26 +276,35 @@ function RulesOfBehaviorModal({ onAccept }) {
   const backRef = useRef(null)
   const [declined, setDeclined] = useState(false)
 
+  // showModal() would focus the scrollable text and draw its focus ring; the
+  // dialog itself takes focus instead (no ring, see index.css) and Tab moves
+  // on from there
+  const open = (el) => { el.showModal(); el.focus() }
   useEffect(() => {
     const el = ref.current
-    if (el && !el.open) el.showModal()
+    if (el && !el.open) open(el)
   }, [])
 
-  // showModal() would focus the scrollable text first; the action button of the
-  // current view takes it instead. Swapping the view removes the focused
-  // button, so this also keeps focus inside the dialog.
-  const focusAction = () => (declined ? backRef : acceptRef).current?.focus()
-  useEffect(focusAction, [declined])
+  // Swapping the view removes the focused button, so the new view's action
+  // button takes focus to keep it inside the dialog (ringed only when the
+  // swap was made with the keyboard)
+  const shownDeclined = useRef(declined)
+  useEffect(() => {
+    if (shownDeclined.current === declined) return
+    shownDeclined.current = declined
+    ;(declined ? backRef : acceptRef).current?.focus()
+  }, [declined])
 
   return (
     <dialog
       ref={ref}
       className="rob-modal"
+      tabIndex={-1}
       aria-labelledby="rob-heading"
       aria-describedby="rob-hint"
       onCancel={(e) => e.preventDefault()}
       // Browsers can still close on a repeated Escape; put it straight back
-      onClose={(e) => { e.currentTarget.showModal(); focusAction() }}
+      onClose={(e) => open(e.currentTarget)}
     >
       <h2 className="rob-modal__header" id="rob-heading">Rules of Behavior</h2>
       {declined ? (
