@@ -11,6 +11,7 @@ Endpoints:
                    {"mode": "archive", "sources": ["2021-2025"], "limit": 200}
                    {"mode": "message", "targets": ["69302472"], "dry_run": true}
                    {"mode": "message", "targets": ["69302472"], "force": true, "reindex": true}
+                   {"mode": "current", "no_sync": true}   upload only, no Knowledge Base sync
     POST /reindex  rewrite KB vectors for documents already in S3 (delete +
                    re-ingest each with its .metadata.json sidecar), no scraping:
                    {}                                   every document under the prefix
@@ -58,6 +59,7 @@ class ScrapeRequest(BaseModel):
     prefix: str | None = None
     delay: float | None = None
     reindex: bool = False            # delete + re-ingest each message in the KB after upload
+    no_sync: bool = False            # skip the Knowledge Base sync after the run
     no_summary: bool = False         # skip the collection-summary refresh after the run
 
     def to_argv(self) -> list[str]:
@@ -94,6 +96,8 @@ class ScrapeRequest(BaseModel):
             argv += ["--delay", str(self.delay)]
         if self.reindex:
             argv.append("--reindex")
+        if self.no_sync:
+            argv.append("--no-sync")
         if self.no_summary:
             argv.append("--no-summary")
         return argv

@@ -29,7 +29,6 @@ import json
 import logging
 import os
 import re
-import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -37,7 +36,7 @@ from datetime import date, datetime, timezone
 
 from .config import Settings
 from .countries import detect_countries
-from .kb_index import SIDECAR_SUFFIX
+from .kb_index import SIDECAR_SUFFIX, sync_knowledge_base
 from .kb_metadata import SIDECAR_MAX_BYTES, sidecar_payload
 from .textdoc import split_text_doc
 
@@ -57,7 +56,6 @@ _SUBJECT_DISPLAY_MAX = 160
 _MESSAGE_DOC_RE = re.compile(r"^(?P<mid>[^/]+)/csms-(?P=mid)\.txt$")
 _ATTACHMENT_RE = re.compile(r"^(?P<mid>[^/]+)/attachments/[^/]+$")
 _GENERATED_NAME_RE = re.compile(rf"^{DOC_NAME_PREFIX}[a-z0-9-]+\.md(\.metadata\.json)?$")
-_INGESTION_RUNNING = {"STARTING", "IN_PROGRESS"}
 
 
 # ----------------------------------------------------------------------
@@ -572,54 +570,6 @@ def publish(store, summary_prefix: str, docs: list[SummaryDoc]) -> int:
     return len(stale)
 
 
-def sync_knowledge_base(
-    knowledge_base_id: str,
-    data_source_id: str,
-    client=None,
-    timeout: float = 900.0,
-    poll_seconds: float = 5.0,
-) -> dict:
-    """Run an ingestion job on the summary data source and wait for it.
-    Returns the job statistics."""
-    if client is None:
-        import boto3
-
-        client = boto3.client("bedrock-agent")
-    ids = {"knowledgeBaseId": knowledge_base_id, "dataSourceId": data_source_id}
-    deadline = time.monotonic() + timeout
-
-    while True:
-        try:
-            job = client.start_ingestion_job(description="CSMS collection summary refresh", **ids)["ingestionJob"]
-            break
-        except client.exceptions.ConflictException:
-            # One job per data source at a time; a job that started before the
-            # upload may have missed the new documents, so wait and run our own.
-            if time.monotonic() > deadline:
-                raise TimeoutError(f"Another ingestion job was still running after {timeout:.0f}s") from None
-            logger.info("An ingestion job is already running on data source %s — waiting", data_source_id)
-            time.sleep(poll_seconds)
-
-    job_id = job["ingestionJobId"]
-    logger.info("Started ingestion job %s on knowledge base %s", job_id, knowledge_base_id)
-    while job["status"] in _INGESTION_RUNNING:
-        if time.monotonic() > deadline:
-            raise TimeoutError(f"Ingestion job {job_id} still {job['status']} after {timeout:.0f}s")
-        time.sleep(poll_seconds)
-        job = client.get_ingestion_job(ingestionJobId=job_id, **ids)["ingestionJob"]
-
-    statistics = job.get("statistics", {})
-    reasons = "; ".join(job.get("failureReasons", []))
-    if job["status"] != "COMPLETE":
-        raise RuntimeError(f"Ingestion job {job_id} ended {job['status']}: {reasons}")
-    if statistics.get("numberOfDocumentsFailed"):
-        raise RuntimeError(
-            f"Ingestion job {job_id} failed on {statistics['numberOfDocumentsFailed']} document(s): {reasons}"
-        )
-    logger.info("Ingestion job %s complete: %s", job_id, statistics)
-    return statistics
-
-
 def check_prefixes(message_prefix: str, summary_prefix: str) -> None:
     """The summary documents must never land where the message Knowledge Base
     (or the scraper's own message listing) would pick them up."""
@@ -690,7 +640,11 @@ def refresh_summary(
     if dry_run or not sync:
         return result
     if settings.summary_knowledge_base_id and settings.summary_kb_data_source_id:
-        sync_knowledge_base(settings.summary_knowledge_base_id, settings.summary_kb_data_source_id)
+        sync_knowledge_base(
+            settings.summary_knowledge_base_id,
+            settings.summary_kb_data_source_id,
+            description="CSMS collection summary refresh",
+        )
         result.synced = True
     else:
         logger.info(

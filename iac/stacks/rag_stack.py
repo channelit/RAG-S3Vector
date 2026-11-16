@@ -4,25 +4,28 @@ from config import load_config
 from constructs import Construct
 from resources.resource_flow import create_flow
 from resources.resource_guardrail import create_guardrail
-from resources.resource_iam import create_lambda_role
 from resources.resource_knowledge_base import (
     PRIMARY,
     construct_id_prefix,
     create_knowledge_bases,
-    knowledge_base_settings,
 )
-from resources.resource_lambda import create_lambda_functions
 from resources.resource_s3 import create_document_bucket
 from resources.resource_s3_vectors import create_vector_resources
 
 # from resources.resource_fargate import create_fargate_resources  # UI runs locally via docker-compose
-from resources.resource_ui import create_ui_resources
 
 # knowledge_base.additional key the scraper writes its collection summary for.
 SUMMARY_KNOWLEDGE_BASE = "summary"
 
 
 class RagStack(Stack):
+    """Documents bucket → Bedrock Knowledge Bases (S3 Vectors) → Bedrock Flow.
+
+    Every document is indexed by a knowledge base: each one reads its own folder
+    of the documents bucket and owns one index in the vector bucket. Nothing else
+    in the stack reads the documents or writes vectors.
+    """
+
     def __init__(self, scope: Construct, construct_id: str, env_name: str = "dev", **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -36,29 +39,10 @@ class RagStack(Stack):
 
         vector_resources = create_vector_resources(self, config)
         vector_bucket_name = vector_resources["vector_bucket_name"]
-        vector_index_name = vector_resources["vector_index_name"]
 
         guardrail_resources = create_guardrail(self, config)
         guardrail = guardrail_resources["guardrail"]
         guardrail_version = guardrail_resources["guardrail_version"]
-
-        lambda_role = create_lambda_role(self, config, document_bucket, guardrail)
-
-        # The Knowledge Bases' documents live in the documents bucket too, so the
-        # ingestion Lambda (fired by every object) is told to skip their prefixes.
-        kb_settings = knowledge_base_settings(config)
-
-        lambda_functions = create_lambda_functions(
-            self,
-            config,
-            lambda_role=lambda_role,
-            document_bucket=document_bucket,
-            guardrail_id=guardrail.attr_guardrail_id,
-            guardrail_version=guardrail_version.attr_version,
-            vector_bucket_name=vector_bucket_name,
-            vector_index_name=vector_index_name,
-            ignore_prefixes=[settings["source_prefix"] for settings in kb_settings.values()],
-        )
 
         # The primary knowledge base (CSMS messages) plus each knowledge_base.additional entry.
         knowledge_bases = create_knowledge_bases(
@@ -81,12 +65,6 @@ class RagStack(Stack):
         flow = flow_resources["flow"]
         flow_alias = flow_resources["flow_alias"]
 
-        ui_resources = create_ui_resources(
-            self,
-            config,
-            query_fn=lambda_functions["query_fn"],
-        )
-
         # Fargate disabled — UI container runs locally via docker-compose with
         # the same KB + guardrail wired in through .env.local (see the
         # ContainerUiEnv output below).
@@ -102,7 +80,6 @@ class RagStack(Stack):
 
         cdk.CfnOutput(self, "DocumentBucketName", value=document_bucket.bucket_name)
         cdk.CfnOutput(self, "VectorBucketName", value=vector_bucket_name)
-        cdk.CfnOutput(self, "VectorIndexName", value=vector_index_name)
         cdk.CfnOutput(self, "GuardrailId", value=guardrail.attr_guardrail_id)
         cdk.CfnOutput(self, "GuardrailVersion", value=guardrail_version.attr_version)
         # KnowledgeBaseId / ...DataSourceId / ...IndexName for the primary knowledge
@@ -116,16 +93,6 @@ class RagStack(Stack):
         cdk.CfnOutput(self, "FlowId", value=flow.attr_id)
         cdk.CfnOutput(self, "FlowAliasId", value=flow_alias.attr_id)
         cdk.CfnOutput(self, "FlowVersion", value=flow_resources["flow_version"].attr_version)
-        cdk.CfnOutput(self, "IngestionFunctionName", value=lambda_functions["ingestion_fn"].function_name)
-        cdk.CfnOutput(self, "QueryFunctionName", value=lambda_functions["query_fn"].function_name)
-        # No UiUrl when ui.cloudfront is off: the page has no distribution in front of it.
-        if ui_resources["distribution"]:
-            cdk.CfnOutput(
-                self,
-                "UiUrl",
-                value=f"https://{ui_resources['distribution'].distribution_domain_name}",
-            )
-        cdk.CfnOutput(self, "UiBucketName", value=ui_resources["site_bucket"].bucket_name)
         # Paste-ready app/ui/container/.env.local lines: the standard KB, the
         # generation model, the stack's guardrail (ID + pinned version), and the
         # flow (read by backend/flow_ask.py; the backend itself does not call it).

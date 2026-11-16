@@ -1,6 +1,15 @@
-"""Re-index documents in the Bedrock Knowledge Base via the direct document APIs.
+"""Get documents that are in S3 into a Bedrock Knowledge Base.
 
-For each source document the KB holds, a re-index is:
+Two ways, both used by the scraper:
+
+`sync_knowledge_base` runs one ingestion job over a data source: the Knowledge
+Base indexes every new or changed document under its prefix, each with its
+`.metadata.json` sidecar. The scrape modes run it after uploading messages, and
+the summary runs it after writing its documents.
+
+`KBIndexer` re-indexes chosen documents through the direct document APIs
+(`reindex` mode / `--reindex`). For each source document the KB holds, a
+re-index is:
 
     DeleteKnowledgeBaseDocuments  -> drops the document's current vectors
     IngestKnowledgeBaseDocuments  -> re-embeds the S3 object with its
@@ -32,6 +41,7 @@ SIDECAR_SUFFIX = ".metadata.json"
 
 _DELETE_PENDING = {"DELETING", "DELETE_IN_PROGRESS"}
 _INGEST_PENDING = {"STARTING", "PENDING", "IN_PROGRESS"}
+_SYNC_RUNNING = {"STARTING", "IN_PROGRESS"}
 
 
 @dataclass
@@ -68,6 +78,55 @@ def _identifier(uri: str) -> dict:
 def _chunks(items: list, size: int):
     for i in range(0, len(items), size):
         yield items[i:i + size]
+
+
+def sync_knowledge_base(
+    knowledge_base_id: str,
+    data_source_id: str,
+    description: str = "CSMS scraper sync",
+    client=None,
+    timeout: float = 900.0,
+    poll_seconds: float = 5.0,
+) -> dict:
+    """Run an ingestion job on a Knowledge Base data source and wait for it.
+    Returns the job statistics."""
+    if client is None:
+        import boto3
+
+        client = boto3.client("bedrock-agent")
+    ids = {"knowledgeBaseId": knowledge_base_id, "dataSourceId": data_source_id}
+    deadline = time.monotonic() + timeout
+
+    while True:
+        try:
+            job = client.start_ingestion_job(description=description, **ids)["ingestionJob"]
+            break
+        except client.exceptions.ConflictException:
+            # One job per data source at a time; a job that started before the
+            # upload may have missed the new documents, so wait and run our own.
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"Another ingestion job was still running after {timeout:.0f}s") from None
+            logger.info("An ingestion job is already running on data source %s — waiting", data_source_id)
+            time.sleep(poll_seconds)
+
+    job_id = job["ingestionJobId"]
+    logger.info("Started ingestion job %s on knowledge base %s", job_id, knowledge_base_id)
+    while job["status"] in _SYNC_RUNNING:
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"Ingestion job {job_id} still {job['status']} after {timeout:.0f}s")
+        time.sleep(poll_seconds)
+        job = client.get_ingestion_job(ingestionJobId=job_id, **ids)["ingestionJob"]
+
+    statistics = job.get("statistics", {})
+    reasons = "; ".join(job.get("failureReasons", []))
+    if job["status"] != "COMPLETE":
+        raise RuntimeError(f"Ingestion job {job_id} ended {job['status']}: {reasons}")
+    if statistics.get("numberOfDocumentsFailed"):
+        raise RuntimeError(
+            f"Ingestion job {job_id} failed on {statistics['numberOfDocumentsFailed']} document(s): {reasons}"
+        )
+    logger.info("Ingestion job %s complete: %s", job_id, statistics)
+    return statistics
 
 
 class KBIndexer:

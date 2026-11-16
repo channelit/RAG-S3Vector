@@ -23,17 +23,15 @@ So counting needs code that can see every message. The KB's own vector index alr
 
 ## 3. Overview: what is built (2026-11-16)
 
-Two diagrams: how documents get into each collection, and how a question gets its answer. Both show the repo as it stands, and the stack has matched it since the 2026-11-16 deploy:
+Two diagrams: how documents get into each collection, and how a question gets its answer. Both show the repo as it stands. The deployed stack matches it, except that it still has the older Lambda pipeline, which the repo no longer defines (see the last bullet of §3.1):
 
 - Collection 1 holds 100 messages and 10 attachment files, all indexed (859 vectors).
 - Collection 2 holds the 3 summary documents computed from those 100 messages, all indexed.
 - The flow is deployed and answers when invoked with `backend/flow_ask.py`.
-- The ingestion Lambda skips both knowledge base folders. Collection 3's index still holds the scraper uploads from before that (2,283 of its 4,196 vectors).
-- The stack has no CloudFront distribution. It was deleted in the AWS console on 2026-10-12, so the static page has no URL (`ui.cloudfront: false` in `iac/config/dev.yml`).
 
-### 3.1 Ingestion: three collections in one documents bucket
+### 3.1 Ingestion: every document goes into a knowledge base
 
-Each collection is a folder in the documents bucket (`cits-rag-s3vector-documents-<unique_id>`), with its own indexer and its own index in the S3 Vectors bucket. Collections 1 and 2 are Amazon Bedrock knowledge bases. Collection 3 is the older Lambda pipeline, which is not a knowledge base.
+Each collection is a folder in the documents bucket (`cits-rag-s3vector-documents-<unique_id>`) that one Amazon Bedrock knowledge base reads, with its own index in the S3 Vectors bucket. The scraper is the only writer: it uploads the files and starts the knowledge base sync. There is no Lambda and no file uploaded by hand (user's decision, 2026-11-16).
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 380}}}%%
@@ -50,7 +48,7 @@ flowchart TD
         F1[/"Folder csms/1/<br/>{id}/csms-{id}.txt<br/>{id}/attachments/NN-name<br/>+ .metadata.json sidecars"/]
         K1["Messages KB<br/>cits-rag-s3vector-kb<br/>default chunking"]
         X1[("S3 Vectors index<br/>cits-rag-s3vector-kb-index")]
-        F1 -->|"KB sync or<br/>scraper reindex"| K1 --> X1
+        F1 -->|"KB sync, started<br/>by the scraper"| K1 --> X1
     end
 
     subgraph C2["Collection 2: summary statistics (Bedrock KB)"]
@@ -60,34 +58,32 @@ flowchart TD
         F2 -->|"KB sync, started<br/>by the scraper"| K2 --> X2
     end
 
-    subgraph C3["Collection 3: other documents (Lambda, not a KB)"]
-        F3[/"Everything else<br/>in the bucket<br/>(root files, archive/*.pdf)"/]
-        L3["Ingestion Lambda<br/>skips sidecars and<br/>both KB folders"]
-        X3[("S3 Vectors index<br/>cits-rag-s3vector-index")]
-        F3 -->|"S3 ObjectCreated"| L3 --> X3
+    subgraph CN["A new kind of document (Bedrock KB)"]
+        FN[/"Its own folder<br/>one more entry under<br/>knowledge_base.additional<br/>(source_prefix)"/]
+        KN["Its own KB"]
+        XN[("Its own<br/>S3 Vectors index")]
+        FN -.->|"KB sync"| KN -.-> XN
     end
-
-    UP["Files uploaded by hand"]
 
     FEED --> PIPE
     PDFS --> PIPE
     PIPE -->|"uploads"| F1
     SUM -. "reads every stored message" .- F1
     SUM -->|"writes"| F2
-    SUM ~~~ F3
-    UP --> F3
+    SUM ~~~ FN
 ```
 
 | Collection | S3 folder and files | Indexed by | Vector index | Filled and refreshed by |
 |---|---|---|---|---|
-| 1. CSMS messages | `csms/1/`: `{id}/csms-{id}.txt` and `{id}/attachments/NN-name`, each with a `.metadata.json` sidecar | Messages KB `cits-rag-s3vector-kb` (default chunking, Titan Text v2) | `cits-rag-s3vector-kb-index` | Scraper upload, then a KB sync (`start-ingestion-job`) or `scraper reindex` |
+| 1. CSMS messages | `csms/1/`: `{id}/csms-{id}.txt` and `{id}/attachments/NN-name`, each with a `.metadata.json` sidecar | Messages KB `cits-rag-s3vector-kb` (default chunking, Titan Text v2) | `cits-rag-s3vector-kb-index` | A scrape. The scraper uploads the files, then runs the KB sync itself (`--no-sync` skips it; `--reindex` ingests each message directly instead). |
 | 2. Summary | `csms-summary/1/`: `csms-summary-overview.md`, `csms-summary-year-YYYY.md` (one per year), `csms-summary-countries.md`, each with a sidecar | Summary KB `cits-rag-s3vector-summary-kb` (no chunking, Titan Text v2) | `cits-rag-s3vector-summary-kb-index` | `scraper summary`, or automatically after a scrape that uploaded messages. The scraper runs the KB sync itself. |
-| 3. Other documents | Everything outside those two folders: files uploaded by hand, `archive/*.pdf` | Ingestion Lambda (Nova 2 multimodal embeddings). Not a knowledge base. | `cits-rag-s3vector-index` | Automatically on upload (S3 event) |
 
-- **Collections 1 and 2 are Bedrock knowledge bases; collection 3 is not.** A knowledge base owns exactly one vector index, and a flow's knowledge base node cannot filter inside it. So each category the flow routes to has its own knowledge base and its own index. Collection 3 is the older Lambda pipeline. Only the Query Lambda behind the CloudFront page reads its index; the flow and the container UI never do.
+- **One knowledge base per collection, one vector bucket.** A knowledge base owns exactly one vector index, and a flow's knowledge base node cannot filter inside it. So each category the flow routes to has its own knowledge base and its own index, all in the same S3 Vectors bucket.
+- **One command fills both collections.** A scrape that uploads messages syncs the Messages KB, rebuilds the summary and syncs the Summary KB (checked 2026-11-16 with `scraper message 69302472 --force`).
 - **The summary is computed from the message files, not from an index.** `summary.py` reads every `csms-{id}.txt` and its sidecar under `csms/1/`, counts in code, and rewrites all the summary documents each time. Re-indexing collection 1 does not change it, and `scraper summary` rebuilds it at any time.
 - **The summary needs three settings in the scraper's `.env.local`.** It is written only when `SUMMARY_PREFIX` is set, and the Summary KB is synced only when `SUMMARY_KNOWLEDGE_BASE_ID` and `SUMMARY_KB_DATA_SOURCE_ID` are set. The stack's `ScraperEnv` output has all three.
-- **The S3 event fires for every object written to the bucket.** The ingestion Lambda returns early for sidecars and for the two KB folders (`IGNORE_PREFIXES`), so only collection 3 reaches its index.
+- **A file is indexed only if it is in a collection's folder.** Nothing else reads the documents bucket. A new kind of document gets its own folder and knowledge base (the dashed lane: a `knowledge_base.additional` entry), not a different pipeline.
+- **Not deployed yet (2026-11-16).** The deployed stack still has the pipeline this replaces: an ingestion Lambda triggered by every upload (it skips both folders), a query Lambda with a public Function URL, the index `cits-rag-s3vector-index` and the static page's bucket. That index holds 4,196 vectors: 1,913 from six files uploaded by hand in June 2026 (three CSMS messages saved as text and three ACE CATAIR PDFs) and 2,283 from scraper uploads made before the Lambda skipped them. The next `cdk deploy` deletes all of it and changes nothing in the two knowledge bases.
 
 ### 3.2 Questions: classification → knowledge base
 
@@ -96,50 +92,45 @@ flowchart TD
 flowchart TD
     CALLER(["InvokeFlow caller<br/>today: backend/flow_ask.py"])
     CUI(["Container UI<br/>local Docker"])
-    SUI(["CloudFront UI<br/>no distribution since 2026-10-12"])
 
     BE["Container backend<br/>one retrieve_and_generate call<br/>date filter, guardrail, sources"]
-    QL["Query Lambda<br/>Llama 3.3 + guardrail"]
 
     subgraph FLOW["Bedrock Flow: cits-rag-s3vector-flow (alias live)"]
         IN["FlowInputNode<br/>the question"]
         CL["Classify<br/>prompt node, Nova Micro<br/>replies with one route name"]
         RT{"Route<br/>condition node"}
+        AN["Answer_{new route}<br/>one more flow.routes entry"]
         AS["Answer_statistics<br/>knowledge base node<br/>Nova Pro + guardrail<br/>30 results, own prompt"]
         AM["Answer_messages<br/>knowledge base node<br/>Nova Pro + guardrail<br/>8 results"]
-        AN["Answer_{new route}<br/>one more flow.routes entry"]
         OS(["Output_statistics"])
         OM(["Output_messages"])
         IN --> CL --> RT
+        RT -.->|"future category"| AN
         RT -->|"category == #quot;statistics#quot;"| AS
         RT -->|"default"| AM
-        RT -.->|"future category"| AN
         AS --> OS
         AM --> OM
     end
 
     subgraph STORE["Collections (see 3.1)"]
+        KN[("Another KB<br/>knowledge_base.additional")]
         KS[("Summary KB<br/>csms-summary/1/")]
         KM[("Messages KB<br/>csms/1/")]
-        KN[("Another KB<br/>knowledge_base.additional")]
-        LX[("Lambda index<br/>cits-rag-s3vector-index")]
     end
 
     CALLER --> IN
+    AN -..-> KN
     AS ---> KS
     AM ---> KM
-    AN -..-> KN
     CUI --> BE
     BE -.->|"not wired yet<br/>(open decision)"| IN
     BE --> KM
-    SUI -->|"/api/*"| QL --> LX
 ```
 
 - **The route only picks the knowledge base.** `Classify` (Nova Micro, temperature 0) replies with one route name, and `Route` matches it. A reply it does not recognise goes to `flow.default_route` (`messages`). The question itself, unchanged, is the retrieval query of the `Answer_*` node that runs.
 - **Each `Answer_*` node is one `RetrieveAndGenerate`** with Nova Pro and the stack guardrail. `Answer_statistics` asks for up to 30 results, enough to return every summary document (2 plus one per year of messages), and uses its own prompt (`iac/config/prompts/summary-answer.txt`).
 - **Adding a category** (the dashed lane) is a `knowledge_base.additional` entry, when it has its own documents, plus a `flow.routes` entry in `iac/config/common.yml`. Bedrock allows 17 routes with this layout.
 - **The container backend does not call the flow yet.** A flow's knowledge base node takes no metadata filter and returns no citations, so flow answers have no date range and no source links, which the backend's own call has. Whether to go through the flow, for every question or only those classified `statistics`, is an open decision. Today only `backend/flow_ask.py` invokes it.
-- **The CloudFront UI's path is unchanged:** query Lambda, then collection 3's index. The page has had no URL since the distribution was deleted on 2026-10-12.
 
 ## 4. Models (Amazon Nova only)
 
@@ -148,8 +139,7 @@ flowchart TD
 | Answer generation (`retrieve_and_generate`) | `us.amazon.nova-2-lite-v1:0` (fallback: `us.amazon.nova-pro-v1:0`) | Replaces `us.anthropic.claude-sonnet-4-6`. Set `knowledge_base.generation_model_id` in `common.yml` and the fallback in `backend/main.py` to the same value. |
 | Planner | Nova Micro or Nova 2 Lite | Converse API, temperature 0, structured output via one forced tool (`toolChoice`). |
 | Checker | Nova 2 Lite (escalate to Nova Pro / Premier if accuracy falls short) | Converse API, temperature 0. |
-| KB embeddings | Titan Text v2 today, or **Nova 2 Multimodal Embeddings** (`amazon.nova-2-multimodal-embeddings-v1:0`) | Open decision: see §9. The Lambda pipeline already uses Nova embeddings. |
-| Query Lambda LLM (CloudFront UI) | Nova 2 Lite | Only if the CloudFront UI must also be Nova-only. Needs code changes: `format_llama_prompt` / `result["generation"]` are Llama-specific and move to Converse. |
+| KB embeddings | Titan Text v2 today, or **Nova 2 Multimodal Embeddings** (`amazon.nova-2-multimodal-embeddings-v1:0`) | Open decision: see §9. |
 
 Check each model ID against `aws bedrock list-foundation-models` and the inference profiles in the deployment region, and enable access under Bedrock → Model access.
 
@@ -205,9 +195,9 @@ Unchanged. A single `retrieve_and_generate` call with:
 - It groups chunks by `message_id` into one row per message: ID, dates, subject, countries, attachments, text (`AMAZON_BEDROCK_TEXT`) and embedding.
 - It refreshes after each KB sync. The catalog version is the latest completed ingestion job ID.
 - Counts therefore match exactly what the KB has indexed, which is also what ordinary answers can find.
-- No changes to the scraper or the ingestion Lambda.
+- No changes to the scraper.
 
-If the scan gets slow as the archive grows, save it as a snapshot after each sync. The snapshot must **not** go in the documents bucket (that bucket fires the ingestion Lambda and is the KB data source).
+If the scan gets slow as the archive grows, save it as a snapshot after each sync. Keep the snapshot out of the collections' folders in the documents bucket, so that no knowledge base indexes it.
 
 ## 7. Changes required
 
@@ -217,9 +207,7 @@ If the scan gets slow as the archive grows, save it as a snapshot after each syn
 | `app/ui/container/backend/main.py` | Fallback model → Nova; add planner, count path, catalog loader, verdict cache. |
 | IAM (container / Fargate task role) | `bedrock:InvokeModel` on the Nova models, `bedrock:ApplyGuardrail`, `s3vectors:ListVectors` / `GetVectors` on the KB index. |
 | `.env.local.example`, `ContainerUiEnv` output | New model env vars; KB vector bucket + index name for the catalog scan. |
-| `app/query/handler.py` (optional) | Llama prompt → Nova Converse, if the CloudFront UI must also be Nova-only. |
 | `backend/kb_report.py` | Warn if the `AMAZON_BEDROCK_*` metadata keys change shape. |
-| `app/ingestion/handler.py` (clean-up) | Skip the KB prefix (`csms/`) and any snapshot prefix via `IGNORE_PREFIXES`. |
 
 ## 8. Trade-offs accepted
 
@@ -235,7 +223,6 @@ If the scan gets slow as the archive grows, save it as a snapshot after each syn
 2. **Checker model:** Nova 2 Lite first; Nova Pro / Premier only if the prototype shows it's needed.
 3. **Broad topics past the cap:** "at least N" (recommended) or estimate from a sample.
 4. **Backfill depth:** the Sept 2026 KB report had 100 messages (2026-05-14 – 2026-08-02); CBP has published 30k+ since 2011.
-5. **Query Lambda / CloudFront UI:** move it to Nova as well, or leave it on Llama?
 
 ## 10. Ruled out (don't re-propose)
 

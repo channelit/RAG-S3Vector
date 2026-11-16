@@ -8,8 +8,9 @@ from dataclasses import dataclass, field
 class Settings:
     s3_bucket: str = field(default_factory=lambda: os.environ.get("S3_BUCKET_NAME", ""))
     s3_prefix: str = field(default_factory=lambda: os.environ.get("S3_PREFIX", "csms/"))
-    # Bedrock Knowledge Base + its S3 data source, needed only for re-indexing
-    # (`reindex` mode / `--reindex`): IDs, not names.
+    # Bedrock Knowledge Base + its S3 data source that index the messages (IDs,
+    # not names). When set, the scraper syncs the data source after a run that
+    # uploaded messages; `reindex` mode / `--reindex` need them.
     knowledge_base_id: str = field(default_factory=lambda: os.environ.get("KNOWLEDGE_BASE_ID", ""))
     kb_data_source_id: str = field(default_factory=lambda: os.environ.get("KB_DATA_SOURCE_ID", ""))
     # Collection summary (statistics documents, see summary.py). Its prefix must

@@ -1,6 +1,6 @@
 # CSMS Scraper
 
-Containerized batch app that downloads CBP **Cargo Systems Messaging Service (CSMS)** messages — current and historical — and uploads them to S3 **one message at a time** (local files are deleted right after each upload), formatted for an **AWS Bedrock Knowledge Base** S3 data source with `.metadata.json` sidecars. After a run that uploaded messages it also rebuilds the **collection summary**: a few statistics documents (message counts by date, country and attachments) for a second Knowledge Base, so that "how many messages…" questions have an exact answer to retrieve.
+Containerized batch app that downloads CBP **Cargo Systems Messaging Service (CSMS)** messages — current and historical — and uploads them to S3 **one message at a time** (local files are deleted right after each upload), formatted for an **AWS Bedrock Knowledge Base** S3 data source with `.metadata.json` sidecars. After a run that uploaded messages it syncs that Knowledge Base, so the new messages are indexed without a separate step, and rebuilds the **collection summary**: a few statistics documents (message counts by date, country and attachments) for a second Knowledge Base, so that "how many messages…" questions have an exact answer to retrieve.
 
 ## Sources (verified August 2026)
 
@@ -129,6 +129,8 @@ docker compose run --rm scraper message 69302472
 docker compose run --rm scraper summary
 ```
 
+A run that uploads at least one message then syncs the Knowledge Base and rebuilds the summary, so one command takes a message from CBP to both indexes. `--no-sync` and `--no-summary` skip those steps (see [Bedrock Knowledge Base setup notes](#bedrock-knowledge-base-setup-notes)).
+
 ### Local (no Docker)
 
 ```bash
@@ -171,6 +173,7 @@ python -m scraper serve --port 8080          # or: docker compose run --rm -p 80
 {"mode": "archive", "discover": true}
 {"mode": "message", "targets": ["69302472"], "dry_run": true}
 {"mode": "message", "targets": ["69302472"], "force": true, "reindex": true}
+{"mode": "current", "no_sync": true, "no_summary": true}
 ```
 
 `POST /reindex` bodies (all fields optional):
@@ -211,7 +214,8 @@ python -m scraper all --since 2026-01-01 --force --reindex   # rewrite a whole d
 | `--since / --until YYYY-MM-DD` | date-range filter on sent date; out-of-range messages with a known date (feed `pub_date` or an archive PDF's Sent column) are skipped **without** fetching, and whole archive PDFs whose filename years can't intersect the range are skipped in `all` mode |
 | `--no-discover` (`all`) | use the built-in archive presets instead of scraping the landing page |
 | `--force` | re-process messages already in S3 |
-| `--reindex` | after uploading each message, delete + re-ingest its documents in the Bedrock KB |
+| `--reindex` | after uploading each message, delete + re-ingest its documents in the Bedrock KB (replaces the sync at the end of the run) |
+| `--no-sync` | do not sync the Bedrock KB after the run |
 | `--no-summary` | do not rebuild the collection summary after the run |
 | `--dry-run -o DIR` | no AWS; write and keep files locally |
 | `--list` (archive) | print discovered message refs without processing |
@@ -221,8 +225,9 @@ python -m scraper all --since 2026-01-01 --force --reindex   # rewrite a whole d
 
 - The CDK stack (`iac/resources/resource_knowledge_base.py`) creates a standard KB whose **S3 data source** reads the bucket under `knowledge_base.source_prefix` (`csms/1/` — must match `S3_PREFIX` here); sidecars are picked up automatically by the `<name>.metadata.json` convention (each must stay under **1 KB** for the S3 Vectors-backed KB — the sync job silently *ignores* documents whose sidecar exceeds 1024 bytes; `app/ui/container/backend/kb_report.py` lists them). The stack outputs `KnowledgeBaseId` / `KnowledgeBaseDataSourceId` for `KNOWLEDGE_BASE_ID` / `KB_DATA_SOURCE_ID`.
 - The stack also creates a second KB for the collection summary (`knowledge_base.additional.summary`, source prefix `csms-summary/1/` — must match `SUMMARY_PREFIX` here). Its `ScraperEnv` output is a paste-ready copy of every line this scraper needs in `.env.local`.
-- Both KBs read from the documents bucket (`cits-rag-s3vector-documents-*`), so that is where the scraper uploads. Every object written there also fires the S3 Vectors ingestion Lambda, which skips the KB source prefixes (its `IGNORE_PREFIXES` variable, set by the stack). Deploy the stack before the first summary run, so the Lambda already ignores the summary prefix.
-- After a scraper run, start a KB **sync/ingestion job** to index the new objects — or run with `--reindex` / `POST /reindex` to push each document (with its sidecar metadata) through the direct-ingestion API instead.
+- Both KBs read from the documents bucket (`cits-rag-s3vector-documents-*`), so that is where the scraper uploads. Each KB indexes only what is under its own source prefix, and nothing else in the stack reads the bucket: a file outside those prefixes is not indexed.
+- After a run that uploaded messages, the scraper starts a KB **sync** (one ingestion job on the data source) and waits for it, when `KNOWLEDGE_BASE_ID` and `KB_DATA_SOURCE_ID` are set (the caller needs `bedrock:StartIngestionJob` and `bedrock:GetIngestionJob`). Without them it only uploads, and the data source has to be synced separately. `--no-sync` skips the sync. `--reindex` replaces it: each document is pushed through the direct-ingestion API (with its sidecar metadata) right after its upload. `POST /reindex` does the same for documents already in S3.
+- A sync that fails or is still running after 15 minutes ends the run with exit code 1. The uploaded messages stay in S3, and the next sync indexes them.
 
 ## Politeness / operational notes
 

@@ -5,15 +5,11 @@ naming:
   suffix: ""
   unique_id: cits001
 
-bedrock:
-  embedding_model_id: "amazon.nova-2-multimodal-embeddings-v1:0"
-  llm_model_id: "us.meta.llama3-3-70b-instruct-v1:0"
-  vector_dimension: 1024
-
 # Standard Bedrock Knowledge Base for the container UI (RetrieveAndGenerate is
-# rejected by managed KBs). Backed by its own S3 Vectors index in the same vector
-# bucket; its S3 data source reads the scraper's uploads (+ .metadata.json
-# sidecars) from the documents bucket under source_prefix.
+# rejected by managed KBs). Backed by its own S3 Vectors index in the stack's
+# vector bucket; its S3 data source reads the scraper's uploads (+ .metadata.json
+# sidecars) from the documents bucket under source_prefix. A document is indexed
+# only if it is under a knowledge base's source_prefix.
 knowledge_base:
   embedding_model_id: "amazon.titan-embed-text-v2:0"   # ON_DEMAND, 1024 dims
   vector_dimension: 1024
@@ -81,26 +77,6 @@ flow:
       # so the model always sees all of them. Maximum 100.
       num_results: 30
       prompt_file: "prompts/summary-answer.txt"
-
-# Static web page (app/ui/s3-static): a private S3 bucket that holds the page,
-# and a CloudFront distribution in front of it that also routes /api/* to the
-# query Lambda's Function URL. With cloudfront: false the stack keeps the bucket,
-# the page upload and the Function URL but creates no distribution, so the page
-# has no URL and there is no UiUrl output.
-ui:
-  cloudfront: true
-
-lambda:
-  runtime: "PYTHON_3_12"
-  handler: "handler.lambda_handler"
-  ingestion:
-    timeout_minutes: 15
-    memory_size: 512
-    code_path: "../app/ingestion"
-  query:
-    timeout_minutes: 1
-    memory_size: 256
-    code_path: "../app/query"
 
 fargate:
   cpu: 256

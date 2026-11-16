@@ -1,11 +1,4 @@
 environment: dev
 
-# This stack's distribution (E2IXBLT6BOCT6W) was deleted in the AWS console on
-# 2026-10-12. While the stack still expected it, every deploy failed at the page
-# upload (NoSuchDistribution on the invalidation). Set this to true to have the
-# stack create a new distribution; it will get a new URL.
-ui:
-  cloudfront: false
-
 tags:
   Environment: dev

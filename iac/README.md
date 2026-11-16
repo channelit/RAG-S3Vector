@@ -1,21 +1,20 @@
 # RAG S3Vector — Infrastructure
 
-AWS CDK (Python) stack deploying the RAG pipeline. One stack (`RagStack`) creates:
+AWS CDK (Python) stack deploying the RAG pipeline: a documents bucket, the Bedrock knowledge bases that index it, and the flow and guardrail in front of them. One stack (`RagStack`) creates:
 
 | Resource | Construct | Notes |
 |----------|-----------|-------|
-| Document bucket | `resource_s3.py` | versioned, private; every `ObjectCreated` fires the ingestion Lambda, which skips the Knowledge Base prefixes (`IGNORE_PREFIXES`) |
-| S3 Vectors bucket + Lambda index | `resource_s3_vectors.py` | `AwsCustomResource` (no CDK L2 yet); `text`/`chunk_id` non-filterable |
+| Document bucket | `resource_s3.py` | versioned, private; each knowledge base's S3 data source reads its own folder of it (`source_prefix`) |
+| S3 Vectors bucket | `resource_s3_vectors.py` | `AwsCustomResource` (no CDK L2 yet); holds one index per knowledge base |
 | Bedrock Guardrail + pinned version | `resource_guardrail.py` | denied topics (politics, impoliteness), profanity list, all PII blocked in questions and answers, content filters; every block answers "Sorry we cannot answer this question." |
-| Lambda role | `resource_iam.py` | InvokeModel, ApplyGuardrail, s3vectors:* |
-| Ingestion + Query Lambdas | `resource_lambda.py` | query Lambda also gets a Function URL |
 | **Standard Bedrock Knowledge Base** | `resource_knowledge_base.py` | own S3 Vectors index (`AMAZON_BEDROCK_*` non-filterable), service role, S3 data source on the documents bucket under `knowledge_base.source_prefix` — this is the KB the container UI queries via `RetrieveAndGenerate` (managed KBs reject that call) |
 | **Summary Knowledge Base** | `resource_knowledge_base.py` | one more KB per `knowledge_base.additional` entry; `summary` holds the scraper's collection statistics (source prefix `csms-summary/1/`, `NONE` chunking: one file = one chunk) |
 | **Bedrock Flow** + version + alias | `resource_flow.py` | classifier prompt → condition → one knowledge base node per route (`flow.routes`), each a `RetrieveAndGenerate` with the guardrail; callers invoke the alias |
-| Static UI | `resource_ui.py` | S3 + CloudFront, `/api/*` → query Lambda Function URL. The distribution and the `UiUrl` output are created only when `ui.cloudfront` is true; it is `false` in `config/dev.yml`, because the dev stack's distribution was deleted in the console on 2026-10-12 |
 | Fargate UI (disabled) | `resource_fargate.py` | wired to the KB + guardrail, commented out in `rag_stack.py` |
 
-The guardrail is applied in two places: the query Lambda passes `GUARDRAIL_ID`/`GUARDRAIL_VERSION` to `InvokeModel`, and the container UI passes the same pair as `guardrailConfiguration` on its `RetrieveAndGenerate` call. A guardrail cannot be attached to a Knowledge Base itself — it is always supplied by the caller — so the stack prints a paste-ready `ContainerUiEnv` output with the KB ID, generation model and guardrail ID/version for `app/ui/container/.env.local`.
+**How a document gets indexed.** It is written under a knowledge base's `source_prefix` in the documents bucket, and that knowledge base is synced. The scraper does both (`app/scraper/README.md`). Nothing else reads the bucket, so a file outside those prefixes is not indexed, and no Lambda function handles documents or questions. The one function in the stack is CDK's `AwsCustomResource` provider, which creates the vector bucket and the indexes during a deploy.
+
+The guardrail is applied by its callers: the container UI passes `GUARDRAIL_ID`/`GUARDRAIL_VERSION` as `guardrailConfiguration` on its `RetrieveAndGenerate` call, and the flow's knowledge base nodes carry the same pair. A guardrail cannot be attached to a Knowledge Base itself — it is always supplied by the caller — so the stack prints a paste-ready `ContainerUiEnv` output with the KB ID, generation model and guardrail ID/version for `app/ui/container/.env.local`.
 
 ## Prerequisites
 
@@ -24,7 +23,6 @@ The guardrail is applied in two places: the query Lambda passes `GUARDRAIL_ID`/`
 - AWS CLI configured with credentials
 - CDK CLI: `npm install -g aws-cdk`
 - Bedrock model access enabled in the AWS Console for the models in `config/common.yml`:
-  - `bedrock.embedding_model_id` and `bedrock.llm_model_id` (Lambda pipeline)
   - `knowledge_base.embedding_model_id` and `knowledge_base.generation_model_id` (Knowledge Base + container UI)
   - `flow.classifier_model_id` and `flow.generation_model_id` (Bedrock Flow)
 
@@ -71,9 +69,11 @@ cdk destroy --profile <AWS_PROFILE>
 
 > **Note:** The S3 document bucket has `RemovalPolicy.DESTROY` — `cdk destroy` deletes it and every uploaded document. The Knowledge Base data source uses `data_deletion_policy=DELETE`, so its vectors are removed with it.
 
-## After deploy: sync the Knowledge Base
+## After deploy: fill the Knowledge Bases
 
-The KB starts empty. Sync its S3 data source, then copy the `ContainerUiEnv` output into `app/ui/container/.env.local`:
+Both knowledge bases start empty. Copy the `ScraperEnv` output into `app/scraper/.env.local` and the `ContainerUiEnv` output into `app/ui/container/.env.local`, then run the scraper: it uploads the messages, syncs the messages knowledge base, writes the summary and syncs the summary knowledge base (`app/scraper/README.md`).
+
+To sync a data source yourself, for example after the scraper ran with `--no-sync`:
 
 ```bash
 aws bedrock-agent start-ingestion-job --profile <AWS_PROFILE> \
@@ -112,7 +112,7 @@ The statistics route answers from the summary knowledge base, which is empty unt
 
 | File | Purpose |
 |------|---------|
-| `config/common.yml` | Shared config: model IDs, knowledge bases, flow routes, Lambda settings, common tags |
+| `config/common.yml` | Shared config: model IDs, knowledge bases, flow routes, common tags |
 | `config/prompts/` | Prompt text used by the flow: the classifier template and per-route answer templates |
 | `config/dev.yml` | Dev environment overrides and tags |
 

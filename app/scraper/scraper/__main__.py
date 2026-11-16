@@ -14,7 +14,12 @@ presets if discovery fails) and processes everything in the requested date
 range. SOURCE is a preset name (2011-2015, 2016-2020, 2021-2025,
 latest-month), an archive-PDF URL, or a local PDF path. Common flags:
 --dry-run, --output-dir, --force, --since/--until YYYY-MM-DD, --bucket,
---prefix, --reindex.
+--prefix, --reindex, --no-sync.
+
+After a run that uploaded messages, the scrape modes sync the Bedrock Knowledge
+Base (one ingestion job on its data source), so the new messages are indexed
+without a separate step. That needs KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID;
+skip it with --no-sync.
 
 `reindex` rewrites the Bedrock Knowledge Base vectors for documents already
 in S3 (delete + re-ingest with the .metadata.json sidecar attached), without
@@ -80,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--reindex", action="store_true",
                        help="after uploading each message, delete + re-ingest its documents in "
                             "the Bedrock KB (needs KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID)")
+        p.add_argument("--no-sync", action="store_true",
+                       help="do not sync the Bedrock KB after the run (it is synced when messages were "
+                            "uploaded and KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID are set)")
         p.add_argument("--no-summary", action="store_true",
                        help="do not refresh the collection summary after the run "
                             "(it is refreshed when SUMMARY_PREFIX is set and messages were uploaded)")
@@ -296,9 +304,48 @@ def main(argv: list[str] | None = None) -> int:
     stats = pipeline.run(refs, limit=args.limit)
     print(f"\nDone: {stats.summary()}")
     exit_code = 1 if (stats.failed and not stats.uploaded) else 0
-    if stats.uploaded and not args.dry_run and not args.no_summary:
-        exit_code = _refresh_summary_after_run(settings) or exit_code
+    if stats.uploaded and not args.dry_run:
+        # --reindex has already put each uploaded message in the Knowledge Base.
+        if not args.reindex and not args.no_sync:
+            exit_code = _sync_messages_after_run(settings) or exit_code
+        if not args.no_summary:
+            exit_code = _refresh_summary_after_run(settings) or exit_code
     return exit_code
+
+
+def _sync_messages_after_run(settings: Settings) -> int:
+    """Uploaded messages can be searched only once the Knowledge Base has
+    indexed them, so sync its data source. A failure here does not undo the
+    upload; the next sync picks the messages up."""
+    if not settings.knowledge_base_id or not settings.kb_data_source_id:
+        logger.info(
+            "KNOWLEDGE_BASE_ID / KB_DATA_SOURCE_ID are not set — sync the Knowledge Base's "
+            "data source to index the uploaded messages"
+        )
+        return 0
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    from .kb_index import sync_knowledge_base
+
+    try:
+        statistics = sync_knowledge_base(
+            settings.knowledge_base_id, settings.kb_data_source_id, description="CSMS scrape"
+        )
+    except (BotoCoreError, ClientError, RuntimeError, TimeoutError) as exc:
+        logger.error(
+            "Knowledge Base sync did not complete (%s) — the uploaded messages are in S3; "
+            "check the data source's ingestion jobs and sync it again if needed",
+            exc,
+        )
+        return 1
+    print(
+        "Knowledge Base sync: "
+        f"scanned={statistics.get('numberOfDocumentsScanned', 0)} "
+        f"new={statistics.get('numberOfNewDocumentsIndexed', 0)} "
+        f"modified={statistics.get('numberOfModifiedDocumentsIndexed', 0)} "
+        f"deleted={statistics.get('numberOfDocumentsDeleted', 0)}"
+    )
+    return 0
 
 
 def _refresh_summary_after_run(settings: Settings) -> int:
