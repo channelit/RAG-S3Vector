@@ -23,10 +23,10 @@ So counting needs code that can see every message. The KB's own vector index alr
 
 ## 3. Overview: what is built (2026-11-16)
 
-Two diagrams: how documents get into each collection, and how a question gets its answer. Both show the repo as it stands. The deployed stack matches it, except that it still has the older Lambda pipeline, which the repo no longer defines (see the last bullet of §3.1):
+Two diagrams: how documents get into each collection, and how a question gets its answer. Both show the repo as it stands, and the deployed stack has matched it since the 2026-11-16 deploys:
 
-- Collection 1 holds 100 messages and 10 attachment files, all indexed (859 vectors).
-- Collection 2 holds the 3 summary documents computed from those 100 messages, all indexed.
+- Collection 1 holds 243 messages (sent 2026-05-14 to 2026-11-16) and 21 attachment files, all indexed (1,364 vectors).
+- Collection 2 holds the 3 summary documents computed from those 243 messages, all indexed.
 - The flow is deployed and answers when invoked with `backend/flow_ask.py`.
 
 ### 3.1 Ingestion: every document goes into a knowledge base
@@ -79,11 +79,11 @@ flowchart TD
 | 2. Summary | `csms-summary/1/`: `csms-summary-overview.md`, `csms-summary-year-YYYY.md` (one per year), `csms-summary-countries.md`, each with a sidecar | Summary KB `cits-rag-s3vector-summary-kb` (no chunking, Titan Text v2) | `cits-rag-s3vector-summary-kb-index` | `scraper summary`, or automatically after a scrape that uploaded messages. The scraper runs the KB sync itself. |
 
 - **One knowledge base per collection, one vector bucket.** A knowledge base owns exactly one vector index, and a flow's knowledge base node cannot filter inside it. So each category the flow routes to has its own knowledge base and its own index, all in the same S3 Vectors bucket.
-- **One command fills both collections.** A scrape that uploads messages syncs the Messages KB, rebuilds the summary and syncs the Summary KB (checked 2026-11-16 with `scraper message 69302472 --force`).
+- **One command fills both collections.** A scrape that uploads messages syncs the Messages KB, rebuilds the summary and syncs the Summary KB (checked 2026-11-16: `scraper all --since 2026-08-01` uploaded 143 messages, the sync indexed them with their 11 attachments, and the summary was rebuilt for 243 messages).
 - **The summary is computed from the message files, not from an index.** `summary.py` reads every `csms-{id}.txt` and its sidecar under `csms/1/`, counts in code, and rewrites all the summary documents each time. Re-indexing collection 1 does not change it, and `scraper summary` rebuilds it at any time.
 - **The summary needs three settings in the scraper's `.env.local`.** It is written only when `SUMMARY_PREFIX` is set, and the Summary KB is synced only when `SUMMARY_KNOWLEDGE_BASE_ID` and `SUMMARY_KB_DATA_SOURCE_ID` are set. The stack's `ScraperEnv` output has all three.
 - **A file is indexed only if it is in a collection's folder.** Nothing else reads the documents bucket. A new kind of document gets its own folder and knowledge base (the dashed lane: a `knowledge_base.additional` entry), not a different pipeline.
-- **Not deployed yet (2026-11-16).** The deployed stack still has the pipeline this replaces: an ingestion Lambda triggered by every upload (it skips both folders), a query Lambda with a public Function URL, the index `cits-rag-s3vector-index` and the static page's bucket. That index holds 4,196 vectors: 1,913 from six files uploaded by hand in June 2026 (three CSMS messages saved as text and three ACE CATAIR PDFs) and 2,283 from scraper uploads made before the Lambda skipped them. The next `cdk deploy` deletes all of it and changes nothing in the two knowledge bases.
+- **The older Lambda pipeline is gone (2026-11-16).** Until then the stack also had an ingestion Lambda triggered by every upload, a query Lambda with a public Function URL, their own index (4,196 vectors, 1,913 of them from six files uploaded by hand in June 2026) and a static page's bucket. The six files (three CSMS messages saved as text and three ACE CATAIR PDFs) are still in the documents bucket, outside the collections' folders, so nothing indexes them.
 
 ### 3.2 Questions: classification → knowledge base
 
@@ -222,7 +222,7 @@ If the scan gets slow as the archive grows, save it as a snapshot after each syn
 1. **Embeddings:** keep Titan Text v2 (no change), or switch the KB to Nova 2 Multimodal Embeddings? Switching needs a **new KB + new S3 Vectors index + full re-sync**, because a KB's embedding model can't be changed after it's created.
 2. **Checker model:** Nova 2 Lite first; Nova Pro / Premier only if the prototype shows it's needed.
 3. **Broad topics past the cap:** "at least N" (recommended) or estimate from a sample.
-4. **Backfill depth:** the Sept 2026 KB report had 100 messages (2026-05-14 – 2026-08-02); CBP has published 30k+ since 2011.
+4. **Backfill depth:** on 2026-11-16 the collection held 243 messages (2026-05-14 – 2026-11-16); CBP has published 30k+ since 2011.
 
 ## 10. Ruled out (don't re-propose)
 
