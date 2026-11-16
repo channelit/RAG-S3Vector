@@ -1,6 +1,6 @@
 # CSMS Scraper
 
-Containerized batch app that downloads CBP **Cargo Systems Messaging Service (CSMS)** messages — current and historical — and uploads them to S3 **one message at a time** (local files are deleted right after each upload), formatted for an **AWS Bedrock Knowledge Base** S3 data source with `.metadata.json` sidecars.
+Containerized batch app that downloads CBP **Cargo Systems Messaging Service (CSMS)** messages — current and historical — and uploads them to S3 **one message at a time** (local files are deleted right after each upload), formatted for an **AWS Bedrock Knowledge Base** S3 data source with `.metadata.json` sidecars. After a run that uploaded messages it also rebuilds the **collection summary**: a few statistics documents (message counts by date, country and attachments) for a second Knowledge Base, so that "how many messages…" questions have an exact answer to retrieve.
 
 ## Sources (verified August 2026)
 
@@ -75,6 +75,31 @@ Attachment (PDF under a parent message) — carries the **parent message's metad
 - `related_countries` is a string list detected from subject + body (curated trade-country matcher; "United States" is deliberately excluded — it matches everything).
 - Legacy messages keep their original IDs (e.g. `15-000970`) as strings.
 
+## Collection summary (statistics documents)
+
+A vector search only sees the few chunks it retrieves, so it cannot count messages. `scraper/summary.py` pre-computes the counts instead. It reads every stored message (the main `.txt` document and its sidecar) and writes these documents under `SUMMARY_PREFIX`, each with a small sidecar (`doc_type: csms_summary`):
+
+```
+csms-summary/1/csms-summary-overview.md     # totals, dates covered, per year, top 20 countries, 10 most recent messages
+csms-summary/1/csms-summary-year-2026.md    # one per year: per month, and countries mentioned that year
+csms-summary/1/csms-summary-countries.md    # every country or region, all years
+```
+
+- **Every number is computed by code** from what is stored. The documents also say what they do not contain: counts by topic ("how many messages about X"), counts for a country within one month, and combined counts for several countries (one message can mention several, so those counts overlap).
+- **One document is one chunk.** The summary Knowledge Base's data source uses `NONE` chunking, so each file is written to be retrieved whole and is kept under 12,000 characters.
+- **Countries are detected again from the stored text**, not read from the sidecar, because the sidecar's `related_countries` list is trimmed to fit 1 KB. Attachments are the files stored under each message's `attachments/`. Dates are the sidecar's UTC `sent_date`.
+- **It is rebuilt from scratch each time** (S3 is the only state) and documents from earlier runs that are no longer produced are deleted. An empty listing never overwrites an existing summary.
+
+When it runs:
+
+| Trigger | What happens |
+|---|---|
+| `all` / `current` / `archive` / `message` uploaded at least one message, and `SUMMARY_PREFIX` is set | summary rebuilt after the run (`--no-summary` skips it) |
+| `python -m scraper summary` | rebuilt on demand (`--no-sync` writes the documents without syncing the Knowledge Base) |
+| `python -m scraper summary --dry-run -o out` | no AWS: reads the messages kept in `out/` and writes `out/csms-summary/` |
+
+With `SUMMARY_KNOWLEDGE_BASE_ID` and `SUMMARY_KB_DATA_SOURCE_ID` set, the scraper then runs an ingestion job on the summary data source and waits for it (the caller needs `bedrock:StartIngestionJob` and `bedrock:GetIngestionJob`). Without them it only writes the documents. `SUMMARY_PREFIX` must not overlap `S3_PREFIX`; the scraper refuses to run the summary if it does.
+
 ## Usage
 
 ### Docker (recommended)
@@ -99,6 +124,9 @@ docker compose run --rm scraper archive --discover
 
 # One specific message
 docker compose run --rm scraper message 69302472
+
+# Rebuild the collection summary from everything already in S3
+docker compose run --rm scraper summary
 ```
 
 ### Local (no Docker)
@@ -111,6 +139,7 @@ pip install -r requirements.txt
 # Dry run: no AWS needed; files are written to ./out and kept
 python -m scraper message 69302472 --dry-run
 python -m scraper current --limit 5 --dry-run
+python -m scraper summary --dry-run          # statistics documents for what is in ./out
 
 # Real upload
 S3_BUCKET_NAME=my-kb-bucket AWS_PROFILE=terraform python -m scraper current
@@ -131,6 +160,7 @@ python -m scraper serve --port 8080          # or: docker compose run --rm -p 80
 | `GET /status` | state of the current/last run (`idle` / `running` / `succeeded` / `failed`) |
 | `POST /scrape` | trigger a run; returns `202` + `run_id`, or `409` if a run is already in progress |
 | `POST /reindex` | rewrite the KB vectors of documents already in S3 (see [Re-indexing](#re-indexing-the-knowledge-base)); same `202`/`409` semantics |
+| `POST /summary` | rebuild the [collection summary](#collection-summary-statistics-documents); body `{}` or `{"no_sync": true}`; same `202`/`409` semantics |
 
 `POST /scrape` bodies mirror the CLI — `mode` is `current` / `archive` / `message`, everything else is optional:
 
@@ -182,6 +212,7 @@ python -m scraper all --since 2026-01-01 --force --reindex   # rewrite a whole d
 | `--no-discover` (`all`) | use the built-in archive presets instead of scraping the landing page |
 | `--force` | re-process messages already in S3 |
 | `--reindex` | after uploading each message, delete + re-ingest its documents in the Bedrock KB |
+| `--no-summary` | do not rebuild the collection summary after the run |
 | `--dry-run -o DIR` | no AWS; write and keep files locally |
 | `--list` (archive) | print discovered message refs without processing |
 | `--delay SECONDS` | politeness delay between HTTP requests (default 0.7) |
@@ -189,7 +220,8 @@ python -m scraper all --since 2026-01-01 --force --reindex   # rewrite a whole d
 ## Bedrock Knowledge Base setup notes
 
 - The CDK stack (`iac/resources/resource_knowledge_base.py`) creates a standard KB whose **S3 data source** reads the bucket under `knowledge_base.source_prefix` (`csms/1/` — must match `S3_PREFIX` here); sidecars are picked up automatically by the `<name>.metadata.json` convention (each must stay under **1 KB** for the S3 Vectors-backed KB — the sync job silently *ignores* documents whose sidecar exceeds 1024 bytes; `app/ui/container/backend/kb_report.py` lists them). The stack outputs `KnowledgeBaseId` / `KnowledgeBaseDataSourceId` for `KNOWLEDGE_BASE_ID` / `KB_DATA_SOURCE_ID`.
-- **Do not** upload into the existing `cits-rag-s3vector-documents-*` bucket: its `ObjectCreated` notification feeds the S3 Vectors ingestion Lambda, which would try to ingest every sidecar too.
+- The stack also creates a second KB for the collection summary (`knowledge_base.additional.summary`, source prefix `csms-summary/1/` — must match `SUMMARY_PREFIX` here). Its `ScraperEnv` output is a paste-ready copy of every line this scraper needs in `.env.local`.
+- Both KBs read from the documents bucket (`cits-rag-s3vector-documents-*`), so that is where the scraper uploads. Every object written there also fires the S3 Vectors ingestion Lambda, which skips the KB source prefixes (its `IGNORE_PREFIXES` variable, set by the stack). Deploy the stack before the first summary run, so the Lambda already ignores the summary prefix.
 - After a scraper run, start a KB **sync/ingestion job** to index the new objects — or run with `--reindex` / `POST /reindex` to push each document (with its sidecar metadata) through the direct-ingestion API instead.
 
 ## Politeness / operational notes

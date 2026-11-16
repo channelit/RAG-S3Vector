@@ -16,6 +16,7 @@ def create_lambda_functions(
     guardrail_version: str,
     vector_bucket_name: str,
     vector_index_name: str,
+    ignore_prefixes: list[str] | None = None,
 ) -> dict:
     project_name = config["project_name"]
     embedding_model_id = config["bedrock"]["embedding_model_id"]
@@ -38,6 +39,12 @@ def create_lambda_functions(
         "GUARDRAIL_ID": guardrail_id,
         "GUARDRAIL_VERSION": guardrail_version,
     }
+
+    # Key prefixes the ingestion function must leave alone: the Bedrock Knowledge
+    # Bases' source prefixes. Those objects share the documents bucket (and so
+    # fire this function) but are indexed by the knowledge bases, not here.
+    if ignore_prefixes:
+        ingestion_env["IGNORE_PREFIXES"] = ",".join(ignore_prefixes)
 
     ingestion_fn = lambda_.Function(
         scope,

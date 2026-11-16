@@ -12,6 +12,17 @@ class Settings:
     # (`reindex` mode / `--reindex`): IDs, not names.
     knowledge_base_id: str = field(default_factory=lambda: os.environ.get("KNOWLEDGE_BASE_ID", ""))
     kb_data_source_id: str = field(default_factory=lambda: os.environ.get("KB_DATA_SOURCE_ID", ""))
+    # Collection summary (statistics documents, see summary.py). Its prefix must
+    # sit outside S3_PREFIX; unset = no summary is written. The summary Knowledge
+    # Base + data source IDs are optional: when set, the scraper syncs that data
+    # source after writing the documents.
+    summary_prefix: str = field(default_factory=lambda: os.environ.get("SUMMARY_PREFIX", ""))
+    summary_knowledge_base_id: str = field(
+        default_factory=lambda: os.environ.get("SUMMARY_KNOWLEDGE_BASE_ID", "")
+    )
+    summary_kb_data_source_id: str = field(
+        default_factory=lambda: os.environ.get("SUMMARY_KB_DATA_SOURCE_ID", "")
+    )
     request_delay: float = field(
         default_factory=lambda: float(os.environ.get("REQUEST_DELAY_SECONDS", "0.7"))
     )
@@ -31,3 +42,5 @@ class Settings:
     def __post_init__(self):
         if self.s3_prefix and not self.s3_prefix.endswith("/"):
             self.s3_prefix += "/"
+        if self.summary_prefix and not self.summary_prefix.endswith("/"):
+            self.summary_prefix += "/"

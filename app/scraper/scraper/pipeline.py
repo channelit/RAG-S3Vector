@@ -28,6 +28,7 @@ from .csms import (
 )
 from .kb_index import SIDECAR_SUFFIX, KBDocument, KBIndexer
 from .kb_metadata import attachment_attributes, message_attributes, write_sidecar
+from .textdoc import render_text_doc
 from .uploader import S3Uploader
 from .web import WebClient
 
@@ -265,17 +266,7 @@ class Pipeline:
 
     @staticmethod
     def _render_text_doc(bulletin: Bulletin) -> str:
-        lines = [
-            f"CSMS # {bulletin.message_id} — {bulletin.subject}",
-            f"Sent: {bulletin.sent_raw or 'unknown'}",
-            f"Source: {bulletin.url}",
-            "",
-            bulletin.body_text or "(no body text)",
-        ]
-        if bulletin.attachments:
-            lines += ["", "Attachments:"]
-            lines += [f"- {att.filename}" for att in bulletin.attachments]
-        return "\n".join(lines) + "\n"
+        return render_text_doc(bulletin)
 
     # ------------------------------------------------------------------
     # Batch driver

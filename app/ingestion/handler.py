@@ -39,6 +39,13 @@ VECTOR_BUCKET_NAME = os.environ["VECTOR_BUCKET_NAME"]
 VECTOR_INDEX_NAME = os.environ["VECTOR_INDEX_NAME"]
 EMBEDDING_MODEL_ID = os.environ["EMBEDDING_MODEL_ID"]
 
+# Comma-separated key prefixes this function never indexes: the Bedrock
+# Knowledge Bases' source prefixes (set by CDK from iac/config). Their objects
+# land in this bucket too, but the knowledge bases index them.
+IGNORE_PREFIXES = tuple(
+    prefix.strip() for prefix in os.environ.get("IGNORE_PREFIXES", "").split(",") if prefix.strip()
+)
+
 CHUNK_SIZE = 1000       # characters per chunk
 CHUNK_OVERLAP = 200     # overlap between consecutive chunks
 BATCH_SIZE = 500        # max vectors per PutVectors call
@@ -102,6 +109,10 @@ def lambda_handler(event, context):
         # describe documents and must never be indexed as documents themselves.
         if key.endswith(".metadata.json"):
             logger.info("Skipping metadata sidecar: %s", key)
+            continue
+
+        if key.startswith(IGNORE_PREFIXES):
+            logger.info("Skipping %s: under a Knowledge Base source prefix %s", key, IGNORE_PREFIXES)
             continue
 
         # Route archive PDFs to the dedicated handler

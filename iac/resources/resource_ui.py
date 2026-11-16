@@ -25,10 +25,15 @@ def create_ui_resources(
     config: dict,
     query_fn: lambda_.Function,
 ) -> dict:
-    """Static SPA in S3 + CloudFront, with /api/* routed to the query lambda's Function URL."""
+    """Static SPA in S3 + CloudFront, with /api/* routed to the query lambda's Function URL.
+
+    With `ui.cloudfront: false` the bucket, the page upload and the Function URL
+    stay, but no distribution is created and "distribution" is None.
+    """
     project_name = config["project_name"]
     unique_id = config["naming"]["unique_id"]
     site_bucket_name = resource_name(config, f"{project_name}-ui-{unique_id}")
+    cloudfront_enabled = config.get("ui", {}).get("cloudfront", True)
 
     # 1) Private bucket for the static site (CloudFront reaches it via OAC)
     site_bucket = s3.Bucket(
@@ -52,34 +57,38 @@ def create_ui_resources(
     )
 
     # 3) CloudFront: S3 for "/" and Function URL for "/api/*"
-    distribution = cloudfront.Distribution(
-        scope,
-        "UiDistribution",
-        default_root_object="index.html",
-        default_behavior=cloudfront.BehaviorOptions(
-            origin=origins.S3BucketOrigin.with_origin_access_control(site_bucket),
-            viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-            cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
-        ),
-        additional_behaviors={
-            "/api/*": cloudfront.BehaviorOptions(
-                origin=origins.FunctionUrlOrigin(fn_url),
+    distribution = None
+    if cloudfront_enabled:
+        distribution = cloudfront.Distribution(
+            scope,
+            "UiDistribution",
+            default_root_object="index.html",
+            default_behavior=cloudfront.BehaviorOptions(
+                origin=origins.S3BucketOrigin.with_origin_access_control(site_bucket),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-                allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
-                cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
-                origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+                cache_policy=cloudfront.CachePolicy.CACHING_OPTIMIZED,
             ),
-        },
-    )
+            additional_behaviors={
+                "/api/*": cloudfront.BehaviorOptions(
+                    origin=origins.FunctionUrlOrigin(fn_url),
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                    origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+                ),
+            },
+        )
 
-    # 4) Sync ../app/s3-static/ → bucket and invalidate CloudFront on every deploy
+    # 4) Sync ../app/s3-static/ → bucket on every deploy, and invalidate
+    #    CloudFront when there is a distribution. The upload fails if it is told
+    #    to invalidate a distribution that no longer exists.
+    invalidation = {"distribution": distribution, "distribution_paths": ["/*"]} if distribution else {}
     s3deploy.BucketDeployment(
         scope,
         "UiDeployment",
         sources=[s3deploy.Source.asset("../app/ui/s3-static")],
         destination_bucket=site_bucket,
-        distribution=distribution,
-        distribution_paths=["/*"],
+        **invalidation,
     )
 
     return {
