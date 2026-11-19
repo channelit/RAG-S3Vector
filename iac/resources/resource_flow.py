@@ -105,6 +105,13 @@ def _validate(flow_cfg: dict, knowledge_bases: dict[str, dict]) -> None:
         )
 
 
+def routes_reading(flow_cfg: dict, knowledge_base: str) -> list[str]:
+    """The routes answered from one knowledge base (a knowledge_base key such as
+    "primary"). The container backend answers the primary knowledge base's
+    routes itself, with its date filter and sources (FLOW_BACKEND_ROUTES)."""
+    return [name for name, route in flow_cfg["routes"].items() if route.get("knowledge_base") == knowledge_base]
+
+
 def classifier_prompt(flow_cfg: dict) -> str:
     """The classifier's prompt: the template file with the route list filled in.
     `{{question}}` stays, as the prompt node's input variable."""

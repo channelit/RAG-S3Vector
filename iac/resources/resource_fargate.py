@@ -18,6 +18,8 @@ from aws_cdk import (
 )
 from config import resource_name
 from constructs import Construct
+from resources.resource_flow import routes_reading
+from resources.resource_knowledge_base import PRIMARY
 
 
 def create_fargate_resources(
@@ -39,8 +41,10 @@ def create_fargate_resources(
     the task role is scoped to those three resources (RetrieveAndGenerate itself
     cannot be scoped in IAM). When the flow and
     its alias are passed in (resource_flow.py), the task also gets FLOW_ID /
-    FLOW_ALIAS_ID and permission to invoke that alias, ready for a backend that
-    calls the flow; main.py does not call it today. The ALTCHA
+    FLOW_ALIAS_ID / FLOW_BACKEND_ROUTES and permission to invoke that alias:
+    main.py sends every question to the flow's classifier, answers the routes
+    that read the primary knowledge base itself and returns the flow's answer
+    for the others. Without the flow it answers every question itself. The ALTCHA
     captcha is served by the backend itself and is on by default, but with more
     than one task ALTCHA_HMAC_KEY must be shared — a secret, so inject it via
     Secrets Manager / `secrets=` rather than `environment=`; not wired here.
@@ -58,6 +62,7 @@ def create_fargate_resources(
     if flow and flow_alias:
         container_env["FLOW_ID"] = flow.attr_id
         container_env["FLOW_ALIAS_ID"] = flow_alias.attr_id
+        container_env["FLOW_BACKEND_ROUTES"] = ",".join(routes_reading(config["flow"], PRIMARY))
     fargate_cfg = config.get("fargate", {})
     cpu = fargate_cfg.get("cpu", 256)
     memory = fargate_cfg.get("memory", 512)
@@ -117,7 +122,7 @@ def create_fargate_resources(
             iam.PolicyStatement(actions=["bedrock:InvokeFlow"], resources=[flow_alias.attr_arn])
         )
     # Generation model: the inference profile plus the foundation model in
-    # every region the profile may route to (same shape as resource_iam.py).
+    # every region the profile may route to.
     if generation_model_id.startswith(("us.", "eu.", "apac.", "global.")):
         foundation_model_id = generation_model_id.split(".", 1)[1]
         model_arns = [

@@ -1,11 +1,23 @@
 """FastAPI backend for the container UI.
 
-One Bedrock Knowledge Base RetrieveAndGenerate call per question: the KB
-retrieves the chunks (the UI date range becomes a `date_numeric` YYYYMMDD
-metadata filter — the attribute the scraper writes into each document's
-.metadata.json sidecar) and Bedrock writes the answer from them with the
-configured model, applying the guardrail when one is set. Sources come from
-the response citations.
+Each question goes to the Bedrock Flow first (FLOW_ID / FLOW_ALIAS_ID, see
+iac/resources/resource_flow.py), whose classifier picks a route:
+
+  * A route in FLOW_BACKEND_ROUTES (default `messages`: what CSMS messages say)
+    is answered here, by one Bedrock Knowledge Base RetrieveAndGenerate call:
+    the KB retrieves the chunks (the UI date range becomes a `date_numeric`
+    YYYYMMDD metadata filter — the attribute the scraper writes into each
+    document's .metadata.json sidecar) and Bedrock writes the answer from them
+    with the configured model, applying the guardrail when one is set. Sources
+    come from the response citations. The backend stops reading the flow as
+    soon as it has chosen the route; Bedrock still finishes the flow's own
+    answer, which is discarded.
+  * Any other route (`statistics`: counts over the whole collection) is
+    answered by the flow. A flow takes no date filter and returns no sources,
+    so these answers have neither.
+
+Without FLOW_ID / FLOW_ALIAS_ID, or when the flow fails before choosing a
+route, the question gets the knowledge base call.
 
 ALTCHA captcha, self-hosted: this backend creates the challenges itself with
 the `altcha` library and serves them at the relative path /api/altcha/challenge
@@ -67,6 +79,22 @@ MODEL_ARN = _model_arn(
 GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID") or None
 GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
 NUM_RESULTS = int(os.environ.get("KB_NUM_RESULTS", "8"))
+
+# Bedrock Flow that classifies each question. The routes in FLOW_BACKEND_ROUTES
+# (comma-separated: the routes that read KNOWLEDGE_BASE_ID, which the stack's
+# ContainerUiEnv output lists) are answered by this backend; the flow answers
+# every other route.
+FLOW_ID = os.environ.get("FLOW_ID") or None
+FLOW_ALIAS_ID = os.environ.get("FLOW_ALIAS_ID") or None
+FLOW_BACKEND_ROUTES = frozenset(
+    route.strip() for route in os.environ.get("FLOW_BACKEND_ROUTES", "messages").split(",") if route.strip()
+)
+# Node names set in iac/resources/resource_flow.py
+FLOW_INPUT_NODE = "FlowInputNode"
+FLOW_ANSWER_NODE_PREFIX = "Answer_"   # Answer_<route>: the knowledge base node the flow routes the question to
+FLOW_OUTPUT_NODE_PREFIX = "Output_"   # Output_<route>: the output node that returns that route's answer
+if not (FLOW_ID and FLOW_ALIAS_ID):
+    logger.warning("FLOW_ID / FLOW_ALIAS_ID not set: every question is answered from the knowledge base, counts included")
 
 # ALTCHA proof-of-work captcha, served by this backend with the `altcha` library.
 # On unless ALTCHA_ENABLED=false. ALTCHA_HMAC_KEY signs and verifies challenges;
@@ -241,6 +269,56 @@ def _retrieve_and_generate(query: str, retrieval_filter: dict | None) -> dict:
     )
 
 
+class _FlowFailed(Exception):
+    """The flow call failed. `route` is the route it had chosen by then, if any."""
+
+    def __init__(self, route: str | None, reason: str):
+        super().__init__(reason)
+        self.route = route
+
+
+def _ask_flow(question: str) -> tuple[str, str | None]:
+    """Send the question to the flow; returns (route, answer).
+
+    The route is known when the flow starts its Answer_<route> node, which the
+    trace reports right after the classifier replies (well under a second),
+    long before that node's answer. For a route in FLOW_BACKEND_ROUTES the
+    stream is closed then and the answer is None, because the caller answers
+    it (closing the stream does not stop the flow: Bedrock still runs that
+    node). For any other route the flow's answer is read from the stream. Raises
+    _FlowFailed when the flow gives no route or no answer."""
+    route: str | None = None
+    stream = None
+    try:
+        response = bedrock_agent.invoke_flow(
+            flowIdentifier=FLOW_ID,
+            flowAliasIdentifier=FLOW_ALIAS_ID,
+            enableTrace=True,
+            inputs=[{"nodeName": FLOW_INPUT_NODE, "nodeOutputName": "document", "content": {"document": question}}],
+        )
+        stream = response["responseStream"]
+        for event in stream:
+            if "flowTraceEvent" in event:
+                node = event["flowTraceEvent"]["trace"].get("nodeInputTrace", {}).get("nodeName", "")
+                if route is None and node.startswith(FLOW_ANSWER_NODE_PREFIX):
+                    route = node.removeprefix(FLOW_ANSWER_NODE_PREFIX)
+                    if route in FLOW_BACKEND_ROUTES:
+                        return route, None
+            elif "flowOutputEvent" in event:
+                output = event["flowOutputEvent"]
+                return output["nodeName"].removeprefix(FLOW_OUTPUT_NODE_PREFIX), output["content"]["document"]
+            elif "flowCompletionEvent" in event:
+                reason = event["flowCompletionEvent"].get("completionReason")
+                raise _FlowFailed(route, f"the flow finished without an answer ({reason})")
+    except (ClientError, BotoCoreError) as exc:
+        # Includes errors reported inside the stream, such as a node that failed
+        raise _FlowFailed(route, str(exc)) from exc
+    finally:
+        if stream is not None:
+            stream.close()
+    raise _FlowFailed(route, "the flow's response ended without an answer")
+
+
 def _document_path(reference: dict) -> str:
     """Path part of the citation's document location (any location type)."""
     location = reference.get("location") or {}
@@ -334,6 +412,31 @@ def query(req: QueryRequest):
     if from_num is not None and to_num is not None and from_num > to_num:
         raise HTTPException(status_code=400, detail="date_from must not be after date_to")
 
+    # The flow's classifier picks the route. The backend waits for the flow's
+    # answer only on the routes it does not answer itself.
+    route: str | None = None
+    if FLOW_ID and FLOW_ALIAS_ID:
+        started = time.monotonic()
+        try:
+            route, flow_answer = _ask_flow(req.query)
+        except _FlowFailed as exc:
+            if exc.route and exc.route not in FLOW_BACKEND_ROUTES:
+                logger.error("Flow failed on route %s: %s", exc.route, exc)
+                raise HTTPException(status_code=502, detail=f"The {exc.route} answer failed: {exc}")
+            logger.warning("Flow failed before choosing a route; answering from the knowledge base: %s", exc)
+        else:
+            logger.info("Flow route %s (%.1fs)", route, time.monotonic() - started)
+            if route not in FLOW_BACKEND_ROUTES:
+                note = None
+                if from_num is not None or to_num is not None:
+                    note = "The date range filter does not apply to this answer, which covers the whole collection."
+                return {
+                    "answer": flow_answer or "Sorry we cannot answer this question.",
+                    "sources": [],
+                    "route": route,
+                    "note": note,
+                }
+
     try:
         response = _retrieve_and_generate(req.query, _build_filter(from_num, to_num))
     except (ClientError, BotoCoreError) as exc:
@@ -344,7 +447,7 @@ def query(req: QueryRequest):
     if response.get("guardrailAction") == "INTERVENED":
         # Don't cite sources under a blocked/masked answer
         logger.warning("Guardrail %s v%s intervened", GUARDRAIL_ID, GUARDRAIL_VERSION)
-        return {"answer": answer or "Sorry we cannot answer this question.", "sources": []}
+        return {"answer": answer or "Sorry we cannot answer this question.", "sources": [], "route": route, "note": None}
 
     sources: list[dict] = []
     seen: set[str] = set()
@@ -356,7 +459,7 @@ def query(req: QueryRequest):
                 sources.append({"label": label, "url": url})
     if from_num is not None or to_num is not None:
         logger.info("Date range %s..%s: %d cited source(s)", req.date_from, req.date_to, len(sources))
-    return {"answer": answer, "sources": sources}
+    return {"answer": answer, "sources": sources, "route": route, "note": None}
 
 
 # SPA static files — registered last so API routes take precedence

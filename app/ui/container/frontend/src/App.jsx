@@ -366,6 +366,8 @@ function App() {
   const [dateTo, setDateTo] = useState('')
   const [answer, setAnswer] = useState('')
   const [sources, setSources] = useState([])
+  // Backend remark about the answer, e.g. that the date range did not apply to it
+  const [note, setNote] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   // null until /api/config answers; then {enabled, challenge_url}
@@ -431,6 +433,7 @@ function App() {
     setError('')
     setAnswer('')
     setSources([])
+    setNote('')
 
     const body = { query }
     if (dateFrom) body.date_from = dateFrom
@@ -452,6 +455,7 @@ function App() {
       const data = await res.json()
       setAnswer(data.answer ?? JSON.stringify(data, null, 2))
       setSources(Array.isArray(data.sources) ? data.sources : [])
+      setNote(typeof data.note === 'string' ? data.note : '')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -581,6 +585,7 @@ function App() {
                   </div>
                 </div>
               )}
+              {answer && note && <p className="usa-hint margin-top-1">{note}</p>}
 
               {sources.length > 0 && (
                 <div className="margin-top-3">

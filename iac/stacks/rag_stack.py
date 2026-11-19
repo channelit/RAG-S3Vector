@@ -2,7 +2,7 @@ import aws_cdk as cdk
 from aws_cdk import Stack
 from config import load_config
 from constructs import Construct
-from resources.resource_flow import create_flow
+from resources.resource_flow import create_flow, routes_reading
 from resources.resource_guardrail import create_guardrail
 from resources.resource_knowledge_base import (
     PRIMARY,
@@ -95,7 +95,8 @@ class RagStack(Stack):
         cdk.CfnOutput(self, "FlowVersion", value=flow_resources["flow_version"].attr_version)
         # Paste-ready app/ui/container/.env.local lines: the standard KB, the
         # generation model, the stack's guardrail (ID + pinned version), and the
-        # flow (read by backend/flow_ask.py; the backend itself does not call it).
+        # flow, which classifies every question the backend gets. The backend
+        # answers the routes that read the primary KB itself (FLOW_BACKEND_ROUTES).
         cdk.CfnOutput(
             self,
             "ContainerUiEnv",
@@ -108,6 +109,7 @@ class RagStack(Stack):
                     f"GUARDRAIL_VERSION={guardrail_version.attr_version}",
                     f"FLOW_ID={flow.attr_id}",
                     f"FLOW_ALIAS_ID={flow_alias.attr_id}",
+                    f"FLOW_BACKEND_ROUTES={','.join(routes_reading(config['flow'], PRIMARY))}",
                 ],
             ),
         )

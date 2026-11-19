@@ -97,7 +97,7 @@ The classifier's prompt is built from the route descriptions in `config/common.y
 
 Unrecognised classifier replies go to `flow.default_route`. Bedrock's limits allow 17 routes with this layout; more than four non-default routes are spread over chained condition nodes automatically. Every definition change publishes a new flow version and repoints the alias.
 
-What a flow's knowledge base node cannot do: take a metadata filter (no date range) or return citations (no source links). The container UI's own `RetrieveAndGenerate` call has both, and it does not call the flow.
+What a flow's knowledge base node cannot do: take a metadata filter (no date range) or return citations (no source links). The container UI's own `RetrieveAndGenerate` call has both. So the UI backend sends every question to the flow only to learn the route: for a route that reads the primary knowledge base (`FLOW_BACKEND_ROUTES` in the `ContainerUiEnv` output, `messages` today) it drops the flow once the route is chosen and answers with its own call, and for any other route (`statistics`) it returns the flow's answer. A route added in `common.yml` is therefore answered by the flow in the UI, unless it reads the primary knowledge base.
 
 Try the deployed flow (the AWS CLI cannot call the streaming `InvokeFlow` API):
 
