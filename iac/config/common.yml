@@ -5,15 +5,11 @@ naming:
   suffix: ""
   unique_id: cits001
 
-bedrock:
-  embedding_model_id: "amazon.nova-2-multimodal-embeddings-v1:0"
-  llm_model_id: "us.meta.llama3-3-70b-instruct-v1:0"
-  vector_dimension: 1024
-
 # Standard Bedrock Knowledge Base for the container UI (RetrieveAndGenerate is
-# rejected by managed KBs). Backed by its own S3 Vectors index in the same vector
-# bucket; its S3 data source reads the scraper's uploads (+ .metadata.json
-# sidecars) from the documents bucket under source_prefix.
+# rejected by managed KBs). Backed by its own S3 Vectors index in the stack's
+# vector bucket; its S3 data source reads the scraper's uploads (+ .metadata.json
+# sidecars) from the documents bucket under source_prefix. A document is indexed
+# only if it is under a knowledge base's source_prefix.
 knowledge_base:
   embedding_model_id: "amazon.titan-embed-text-v2:0"   # ON_DEMAND, 1024 dims
   vector_dimension: 1024
@@ -22,17 +18,65 @@ knowledge_base:
   # Cross-region inference-profile ID; the Fargate task role is scoped to it.
   generation_model_id: "us.anthropic.claude-sonnet-4-6"
 
-lambda:
-  runtime: "PYTHON_3_12"
-  handler: "handler.lambda_handler"
-  ingestion:
-    timeout_minutes: 15
-    memory_size: 512
-    code_path: "../app/ingestion"
-  query:
-    timeout_minutes: 1
-    memory_size: 256
-    code_path: "../app/query"
+  # More knowledge bases, one per entry. Each gets its own S3 Vectors index,
+  # service role and S3 data source on the documents bucket under source_prefix,
+  # and can be the target of a flow route below. embedding_model_id and
+  # vector_dimension default to the values above. Prefixes must not overlap.
+  additional:
+    # The scraper's collection summary (app/scraper/scraper/summary.py): a few
+    # statistics documents, each written to be retrieved whole.
+    summary:
+      description: "CBP CSMS collection statistics written by the scraper: message counts by date, country and attachments"
+      source_prefix: "csms-summary/1/"   # the scraper's SUMMARY_PREFIX
+      chunking: none                      # one file = one chunk
+
+# Bedrock Flow in front of the knowledge bases: a classifier prompt picks one
+# route for each question, and that route's knowledge base answers it
+# (RetrieveAndGenerate with the stack guardrail).
+#
+# To add a category: add its knowledge base under knowledge_base.additional (if
+# it needs its own documents), then add a route here. The classifier prompt is
+# built from the route descriptions, so nothing else changes.
+# Limits (Bedrock, not adjustable): 17 routes with this layout, and route names
+# of lowercase letters, digits and single underscores.
+flow:
+  alias_name: "live"
+  # Any Converse text model. It only ever outputs a route name.
+  classifier_model_id: "us.amazon.nova-micro-v1:0"
+  classifier_prompt_file: "prompts/flow-classifier.txt"
+  # Model the knowledge base nodes answer with (RetrieveAndGenerate); a route can
+  # set its own generation_model_id. Nova Pro is listed as supported in Flows and
+  # answers from this knowledge base in this account. knowledge_base's
+  # generation_model_id is not reused here: Claude Sonnet 4.6 is rejected in this
+  # account until the Anthropic use-case form is submitted.
+  generation_model_id: "us.amazon.nova-pro-v1:0"
+  # Answers every question the classifier does not send elsewhere.
+  default_route: messages
+  routes:
+    messages:
+      knowledge_base: primary             # the knowledge_base section above
+      description: >-
+        What CSMS messages say: guidance, announcements, system outages and
+        maintenance, ACE and filing changes, tariffs, duties, quotas, deadlines,
+        or the content of a particular message or attachment. This includes
+        figures stated inside a message, such as how many countries, products
+        or days a measure covers.
+      num_results: 8
+    # Named "statistics", not "summary": with a route called summary the
+    # classifier also sent "give me a summary of ..." requests here.
+    statistics:
+      knowledge_base: summary             # knowledge_base.additional.summary
+      description: >-
+        Statistics about the collection of messages as a whole, not what any
+        message says: how many messages there are (in total, in a year or month,
+        mentioning a country, or with attachments), which dates the collection
+        covers, and which messages are the latest or most recent ones. Use it
+        for every question that counts messages, and for questions that ask for
+        the latest, newest or most recent messages without naming a topic.
+      # At least the number of summary documents (2 + one per year of messages),
+      # so the model always sees all of them. Maximum 100.
+      num_results: 30
+      prompt_file: "prompts/summary-answer.txt"
 
 fargate:
   cpu: 256

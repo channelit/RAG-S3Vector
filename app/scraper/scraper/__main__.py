@@ -5,6 +5,7 @@
     python -m scraper archive  [SOURCE ...] [--discover] [--list] [--limit N]
     python -m scraper message  ID_OR_URL [ID_OR_URL ...]
     python -m scraper reindex  [MESSAGE_ID ...] [--limit N] [--dry-run]
+    python -m scraper summary  [--dry-run] [--no-sync]
     python -m scraper serve    [--host 0.0.0.0] [--port 8080]
 
 `all` is the one-command mode: it unions the live feeds with every archive PDF
@@ -13,12 +14,23 @@ presets if discovery fails) and processes everything in the requested date
 range. SOURCE is a preset name (2011-2015, 2016-2020, 2021-2025,
 latest-month), an archive-PDF URL, or a local PDF path. Common flags:
 --dry-run, --output-dir, --force, --since/--until YYYY-MM-DD, --bucket,
---prefix, --reindex.
+--prefix, --reindex, --no-sync.
+
+After a run that uploaded messages, the scrape modes sync the Bedrock Knowledge
+Base (one ingestion job on its data source), so the new messages are indexed
+without a separate step. That needs KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID;
+skip it with --no-sync.
 
 `reindex` rewrites the Bedrock Knowledge Base vectors for documents already
 in S3 (delete + re-ingest with the .metadata.json sidecar attached), without
 re-scraping; `--reindex` on the scrape modes does the same for each message
 right after it is uploaded. Both need KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID.
+
+`summary` rebuilds the collection summary: statistics documents (message counts
+by date, country and attachments) computed from every stored message and
+written under SUMMARY_PREFIX for the summary Knowledge Base. The scrape modes
+refresh it automatically after a run that uploaded messages, when
+SUMMARY_PREFIX is set (skip with --no-summary).
 """
 
 import argparse
@@ -73,6 +85,12 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--reindex", action="store_true",
                        help="after uploading each message, delete + re-ingest its documents in "
                             "the Bedrock KB (needs KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID)")
+        p.add_argument("--no-sync", action="store_true",
+                       help="do not sync the Bedrock KB after the run (it is synced when messages were "
+                            "uploaded and KNOWLEDGE_BASE_ID and KB_DATA_SOURCE_ID are set)")
+        p.add_argument("--no-summary", action="store_true",
+                       help="do not refresh the collection summary after the run "
+                            "(it is refreshed when SUMMARY_PREFIX is set and messages were uploaded)")
 
     p_all = sub.add_parser(
         "all",
@@ -116,7 +134,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_reindex.add_argument("--bucket", default=None, help="override S3_BUCKET_NAME")
     p_reindex.add_argument("--prefix", default=None, help="override S3_PREFIX (default csms/)")
 
-    p_serve = sub.add_parser("serve", help="run as an HTTP service (POST /scrape, POST /reindex, GET /health)")
+    p_summary = sub.add_parser(
+        "summary",
+        help="rebuild the collection summary (statistics documents) from every stored message",
+    )
+    p_summary.add_argument("--dry-run", action="store_true",
+                           help="no AWS: read the messages kept in --output-dir and write the summary there")
+    p_summary.add_argument("--output-dir", "-o", default="out",
+                           help="local directory for --dry-run (default: out)")
+    p_summary.add_argument("--bucket", default=None, help="override S3_BUCKET_NAME")
+    p_summary.add_argument("--prefix", default=None, help="override S3_PREFIX (default csms/)")
+    p_summary.add_argument("--summary-prefix", default=None, help="override SUMMARY_PREFIX")
+    p_summary.add_argument("--no-sync", action="store_true",
+                           help="write the documents but do not sync the summary Knowledge Base")
+
+    p_serve = sub.add_parser(
+        "serve",
+        help="run as an HTTP service (POST /scrape, POST /reindex, POST /summary, GET /health)",
+    )
     p_serve.add_argument("--host", default="0.0.0.0")
     p_serve.add_argument("--port", type=int, default=8080)
 
@@ -222,9 +257,13 @@ def main(argv: list[str] | None = None) -> int:
         settings.s3_prefix = args.prefix if args.prefix.endswith("/") or not args.prefix else args.prefix + "/"
     if getattr(args, "delay", None) is not None:
         settings.request_delay = args.delay
+    if getattr(args, "summary_prefix", None) is not None:
+        settings.summary_prefix = args.summary_prefix.rstrip("/") + "/" if args.summary_prefix else ""
 
     if args.mode == "reindex":
         return run_reindex(args, settings)
+    if args.mode == "summary":
+        return run_summary(args, settings)
 
     if args.mode == "all" and not args.since and args.limit is None:
         logger.warning(
@@ -264,7 +303,83 @@ def main(argv: list[str] | None = None) -> int:
     )
     stats = pipeline.run(refs, limit=args.limit)
     print(f"\nDone: {stats.summary()}")
-    return 1 if (stats.failed and not stats.uploaded) else 0
+    exit_code = 1 if (stats.failed and not stats.uploaded) else 0
+    if stats.uploaded and not args.dry_run:
+        # --reindex has already put each uploaded message in the Knowledge Base.
+        if not args.reindex and not args.no_sync:
+            exit_code = _sync_messages_after_run(settings) or exit_code
+        if not args.no_summary:
+            exit_code = _refresh_summary_after_run(settings) or exit_code
+    return exit_code
+
+
+def _sync_messages_after_run(settings: Settings) -> int:
+    """Uploaded messages can be searched only once the Knowledge Base has
+    indexed them, so sync its data source. A failure here does not undo the
+    upload; the next sync picks the messages up."""
+    if not settings.knowledge_base_id or not settings.kb_data_source_id:
+        logger.info(
+            "KNOWLEDGE_BASE_ID / KB_DATA_SOURCE_ID are not set — sync the Knowledge Base's "
+            "data source to index the uploaded messages"
+        )
+        return 0
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    from .kb_index import sync_knowledge_base
+
+    try:
+        statistics = sync_knowledge_base(
+            settings.knowledge_base_id, settings.kb_data_source_id, description="CSMS scrape"
+        )
+    except (BotoCoreError, ClientError, RuntimeError, TimeoutError) as exc:
+        logger.error(
+            "Knowledge Base sync did not complete (%s) — the uploaded messages are in S3; "
+            "check the data source's ingestion jobs and sync it again if needed",
+            exc,
+        )
+        return 1
+    print(
+        "Knowledge Base sync: "
+        f"scanned={statistics.get('numberOfDocumentsScanned', 0)} "
+        f"new={statistics.get('numberOfNewDocumentsIndexed', 0)} "
+        f"modified={statistics.get('numberOfModifiedDocumentsIndexed', 0)} "
+        f"deleted={statistics.get('numberOfDocumentsDeleted', 0)}"
+    )
+    return 0
+
+
+def _refresh_summary_after_run(settings: Settings) -> int:
+    """New messages change the counts, so rebuild the summary. A failure here
+    does not undo the upload; `python -m scraper summary` rebuilds it later."""
+    if not settings.summary_prefix:
+        logger.info("SUMMARY_PREFIX is not set — collection summary not refreshed")
+        return 0
+    from .summary import refresh_summary
+
+    try:
+        result = refresh_summary(settings)
+    except (Exception, SystemExit) as exc:
+        logger.error(
+            "Collection summary refresh failed (%s) — re-run it with `python -m scraper summary`",
+            exc, exc_info=not isinstance(exc, SystemExit),
+        )
+        return 1
+    print(f"Summary: {result.summary()}")
+    return 0
+
+
+def run_summary(args, settings: Settings) -> int:
+    """`summary` mode: rebuild the statistics documents from every stored message."""
+    from .summary import refresh_summary
+
+    result = refresh_summary(
+        settings,
+        dry_run=args.dry_run,
+        output_dir=args.output_dir,
+        sync=not args.no_sync,
+    )
+    print(f"\nDone: {result.summary()}")
+    return 0 if result.messages else 1
 
 
 def run_reindex(args, settings: Settings) -> int:

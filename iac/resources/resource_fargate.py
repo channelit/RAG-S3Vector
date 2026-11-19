@@ -18,6 +18,8 @@ from aws_cdk import (
 )
 from config import resource_name
 from constructs import Construct
+from resources.resource_flow import routes_reading
+from resources.resource_knowledge_base import PRIMARY
 
 
 def create_fargate_resources(
@@ -26,6 +28,8 @@ def create_fargate_resources(
     knowledge_base: bedrock.CfnKnowledgeBase,
     guardrail: bedrock.CfnGuardrail,
     guardrail_version: bedrock.CfnGuardrailVersion,
+    flow: bedrock.CfnFlow | None = None,
+    flow_alias: bedrock.CfnFlowAlias | None = None,
 ) -> dict:
     """ECS Fargate + ALB for the container UI (currently disabled in rag_stack.py).
 
@@ -34,7 +38,13 @@ def create_fargate_resources(
     generating with `knowledge_base.generation_model_id` and applying the
     stack's guardrail. The container env mirrors app/ui/container/.env.local.example
     (KNOWLEDGE_BASE_ID, BEDROCK_MODEL_ARN, GUARDRAIL_ID, GUARDRAIL_VERSION) and
-    the task role is scoped to exactly those three resources. The ALTCHA
+    the task role is scoped to those three resources (RetrieveAndGenerate itself
+    cannot be scoped in IAM). When the flow and
+    its alias are passed in (resource_flow.py), the task also gets FLOW_ID /
+    FLOW_ALIAS_ID / FLOW_BACKEND_ROUTES and permission to invoke that alias:
+    main.py sends every question to the flow's classifier, answers the routes
+    that read the primary knowledge base itself and returns the flow's answer
+    for the others. Without the flow it answers every question itself. The ALTCHA
     captcha is served by the backend itself and is on by default, but with more
     than one task ALTCHA_HMAC_KEY must be shared — a secret, so inject it via
     Secrets Manager / `secrets=` rather than `environment=`; not wired here.
@@ -49,6 +59,10 @@ def create_fargate_resources(
         "GUARDRAIL_ID": guardrail.attr_guardrail_id,
         "GUARDRAIL_VERSION": guardrail_version.attr_version,
     }
+    if flow and flow_alias:
+        container_env["FLOW_ID"] = flow.attr_id
+        container_env["FLOW_ALIAS_ID"] = flow_alias.attr_id
+        container_env["FLOW_BACKEND_ROUTES"] = ",".join(routes_reading(config["flow"], PRIMARY))
     fargate_cfg = config.get("fargate", {})
     cpu = fargate_cfg.get("cpu", 256)
     memory = fargate_cfg.get("memory", 512)
@@ -90,15 +104,25 @@ def create_fargate_resources(
         assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
     )
     # RetrieveAndGenerate against the KB (the KB's own service role handles the
-    # vector index and embedding model behind it).
+    # vector index and embedding model behind it). Retrieve is scoped to the KB;
+    # RetrieveAndGenerate has no resource type in IAM, so a statement that names
+    # the KB ARN would never match it.
     task_role.add_to_policy(
         iam.PolicyStatement(
-            actions=["bedrock:Retrieve", "bedrock:RetrieveAndGenerate"],
+            actions=["bedrock:Retrieve"],
             resources=[knowledge_base.attr_knowledge_base_arn],
         )
     )
+    task_role.add_to_policy(
+        iam.PolicyStatement(actions=["bedrock:RetrieveAndGenerate"], resources=["*"])
+    )
+    # The flow is invoked through its alias; the flow's own role does the rest.
+    if flow and flow_alias:
+        task_role.add_to_policy(
+            iam.PolicyStatement(actions=["bedrock:InvokeFlow"], resources=[flow_alias.attr_arn])
+        )
     # Generation model: the inference profile plus the foundation model in
-    # every region the profile may route to (same shape as resource_iam.py).
+    # every region the profile may route to.
     if generation_model_id.startswith(("us.", "eu.", "apac.", "global.")):
         foundation_model_id = generation_model_id.split(".", 1)[1]
         model_arns = [

@@ -11,11 +11,16 @@ Endpoints:
                    {"mode": "archive", "sources": ["2021-2025"], "limit": 200}
                    {"mode": "message", "targets": ["69302472"], "dry_run": true}
                    {"mode": "message", "targets": ["69302472"], "force": true, "reindex": true}
+                   {"mode": "current", "no_sync": true}   upload only, no Knowledge Base sync
     POST /reindex  rewrite KB vectors for documents already in S3 (delete +
                    re-ingest each with its .metadata.json sidecar), no scraping:
                    {}                                   every document under the prefix
                    {"targets": ["69302472"]}            just these messages
                    {"limit": 10, "dry_run": true}       list what would be re-indexed
+    POST /summary  rebuild the collection summary (statistics documents for the
+                   summary Knowledge Base) from every stored message, no scraping:
+                   {}                                   write + sync the summary Knowledge Base
+                   {"no_sync": true}                    write the documents only
 
 Runs execute in a background thread; /scrape answers 202 immediately and 409
 while a run is already in progress (one run at a time — the pipeline is
@@ -54,6 +59,8 @@ class ScrapeRequest(BaseModel):
     prefix: str | None = None
     delay: float | None = None
     reindex: bool = False            # delete + re-ingest each message in the KB after upload
+    no_sync: bool = False            # skip the Knowledge Base sync after the run
+    no_summary: bool = False         # skip the collection-summary refresh after the run
 
     def to_argv(self) -> list[str]:
         if self.mode not in ("all", "current", "archive", "message"):
@@ -89,6 +96,10 @@ class ScrapeRequest(BaseModel):
             argv += ["--delay", str(self.delay)]
         if self.reindex:
             argv.append("--reindex")
+        if self.no_sync:
+            argv.append("--no-sync")
+        if self.no_summary:
+            argv.append("--no-summary")
         return argv
 
 
@@ -109,6 +120,31 @@ class ReindexRequest(BaseModel):
             argv += ["--bucket", self.bucket]
         if self.prefix is not None:
             argv += ["--prefix", self.prefix]
+        return argv
+
+
+class SummaryRequest(BaseModel):
+    dry_run: bool = False
+    output_dir: str | None = None
+    bucket: str | None = None
+    prefix: str | None = None
+    summary_prefix: str | None = None
+    no_sync: bool = False            # write the documents but skip the Knowledge Base sync
+
+    def to_argv(self) -> list[str]:
+        argv = ["summary"]
+        if self.dry_run:
+            argv.append("--dry-run")
+        if self.output_dir:
+            argv += ["--output-dir", self.output_dir]
+        if self.bucket:
+            argv += ["--bucket", self.bucket]
+        if self.prefix is not None:
+            argv += ["--prefix", self.prefix]
+        if self.summary_prefix is not None:
+            argv += ["--summary-prefix", self.summary_prefix]
+        if self.no_sync:
+            argv.append("--no-sync")
         return argv
 
 
@@ -159,6 +195,11 @@ def scrape(req: ScrapeRequest):
 
 @app.post("/reindex", status_code=202)
 def reindex(req: ReindexRequest):
+    return _start_run(req.to_argv())
+
+
+@app.post("/summary", status_code=202)
+def summary(req: SummaryRequest):
     return _start_run(req.to_argv())
 
 

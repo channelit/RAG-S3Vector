@@ -1,39 +1,43 @@
 # RAG-S3Vector
 
-Custom RAG system using AWS Bedrock (embeddings + LLM) and S3 Vectors as the vector store. Documents are uploaded to S3, ingested via Lambda, and queried through a FastAPI/React UI with Bedrock Guardrails applied.
+Question-answering assistant for CBP CSMS (Cargo Systems Messaging Service) messages. A scraper downloads the public messages into S3, Amazon Bedrock Knowledge Bases index them in S3 Vectors, and a FastAPI/React UI answers questions from them with a Bedrock Guardrail applied.
 
 ## Architecture
 
 ```
-S3 Document Bucket
-      │  (ObjectCreated event)
-      ▼
-Ingestion Lambda ──► Bedrock Nova Embed ──► S3 Vectors (index)
+app/scraper ──► S3 documents bucket ──► Bedrock Knowledge Bases ──► S3 Vectors
+ (uploads, then    csms/1/          ──►   messages KB                (one index per
+  starts the       csms-summary/1/  ──►   summary KB: message         knowledge base)
+  KB sync)                                counts the scraper computes
 
-[local docker-compose UI] ──► Query Lambda ──► Bedrock Nova Embed ──► S3 Vectors query
-                                            └──► Bedrock Claude + Guardrail ──► answer + sources
+[local docker-compose UI] ──► RetrieveAndGenerate on the messages KB + Guardrail ──► answer + sources
+Bedrock Flow              ──► classifies the question ──► the KB for its category + Guardrail ──► answer
 ```
 
-CDK deploys: S3 buckets, S3 Vectors bucket + index, Lambda functions, Bedrock Guardrail, CloudFront + static UI.
+Every document is indexed by a knowledge base: the scraper uploads it into that knowledge base's folder and starts the sync. There is no other ingestion path, so a file outside those folders is not indexed.
+
+CDK deploys: the documents bucket, the S3 Vectors bucket, the knowledge bases, the Bedrock Flow and the Bedrock Guardrail.
 **The container UI is not deployed to AWS (Fargate is disabled) — run it locally with docker-compose.**
+
+More detail: [`iac/README.md`](iac/README.md) (deploy), [`app/scraper/README.md`](app/scraper/README.md) (scraper), [`new-architecture.md`](new-architecture.md) (design and plans).
 
 ---
 
 ## Local UI
 
-Run the web container locally while Lambda, Bedrock, and Guardrails remain in real AWS. No code changes required.
+Run the web container locally while the knowledge base, Bedrock and Guardrails remain in real AWS.
 
-**Prerequisites:** Docker Desktop, AWS credentials configured, Query Lambda deployed.
+**Prerequisites:** Docker Desktop, AWS credentials configured, the stack deployed and the messages knowledge base filled by the scraper.
 
 ### 1. Create your local env file
 
 ```bash
 cd app/ui/container
 cp .env.local.example .env.local
-# Edit .env.local — set QUERY_LAMBDA_NAME and AWS_PROFILE (or explicit keys)
+# Edit .env.local — set KNOWLEDGE_BASE_ID and AWS_PROFILE (or explicit keys)
 ```
 
-The only value you must set is `QUERY_LAMBDA_NAME`. Find it in the AWS Console (Lambda) or from CDK deploy output — it follows the pattern `cits-rag-s3vector-query`.
+The only value you must set is `KNOWLEDGE_BASE_ID`. The stack's `ContainerUiEnv` output is a paste-ready copy of it, together with the generation model and the guardrail ID and version.
 
 ### 2. Build and start
 
@@ -41,7 +45,7 @@ The only value you must set is `QUERY_LAMBDA_NAME`. Find it in the AWS Console (
 docker compose up --build
 ```
 
-Open [http://localhost:8000](http://localhost:8000). The container mounts `~/.aws` read-only so boto3 can reach AWS — queries flow: local container → Lambda → Bedrock + S3 Vectors → Guardrails → response.
+Open [http://localhost:8000](http://localhost:8000). The container mounts `~/.aws` read-only so boto3 can reach AWS. Each question is one `RetrieveAndGenerate` call: the knowledge base retrieves the passages and Bedrock writes the answer from them, with the guardrail applied.
 
 ### 3. Stop
 
@@ -53,24 +57,20 @@ docker compose down
 
 | Symptom | Likely cause |
 |---------|--------------|
-| `Missing environment variable: QUERY_LAMBDA_NAME` | `.env.local` not created or variable not set |
+| Container exits at start with `KeyError: 'KNOWLEDGE_BASE_ID'` | `.env.local` not created or variable not set |
 | `NoCredentialsError` | `~/.aws` not populated or wrong `AWS_PROFILE` in `.env.local` |
-| `502` from `/api/query` | Lambda not deployed, or wrong function name |
+| `502` from `/api/query` (`Knowledge Base query failed: …`) | The message carries the AWS error: a wrong `KNOWLEDGE_BASE_ID`, a model this account cannot invoke (`BEDROCK_MODEL_ARN`), or missing Bedrock permissions |
 | Container exits immediately | Check `docker compose logs ui` |
 
 > **Note:** Guardrails, embeddings, and the LLM all run in AWS. LocalStack is not supported — it does not implement Bedrock or S3 Vectors.
 
 ---
 
-## Lambda smoke test
+## Ask the deployed flow
 
 ```shell
-aws lambda invoke \
-  --function-name cits-rag-s3vector-query \
-  --cli-binary-format raw-in-base64-out \
-  --payload '{"query": "What documents are available?"}' \
-  --profile terraform \
-  response.json && cat response.json
+cd app/ui/container          # .env.local needs FLOW_ID and FLOW_ALIAS_ID (ContainerUiEnv output)
+python backend/flow_ask.py --trace "How many CSMS messages are there?"
 ```
 
 ## List available Bedrock embedding models
